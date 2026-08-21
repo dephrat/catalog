@@ -1,0 +1,37 @@
+# Secrets — the glob matters: .env.swp slipped past a bare ".env" rule once
+.env
+.env.*
+!.env.example
+
+# Editor swap/backup files. A vim swap file on .env contains the secret
+# in binary form, which text-diff scanning does not catch.
+*.swp
+*.swo
+*.swn
+*~
+.*.sw?
+*.bak
+*.orig
+
+# Databases and dumps — these hold real mailbox contents
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.db.backup
+*.sqlite
+*.sqlite3
+*.json.gz
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local tooling
+.claude/
+demo_catalog.db
+
+# OS
+.DS_Store

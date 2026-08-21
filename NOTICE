@@ -1,0 +1,15 @@
+Catalog
+Copyright 2026 Daniel Ephrat
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+This product includes software originally developed by Daniel Ephrat,
+including "Detective" — the agentic search loop that runs multiple
+filtered queries per round over an LLM-tagged mail archive, carries a
+running fact map between rounds, follows participant addresses as leads,
+and is required to account for where a document is when it cannot find
+it. See README.md for the design.
+
+If you redistribute this software or a derivative of it, this NOTICE
+file must be included with your distribution, per section 4 of the
+License.

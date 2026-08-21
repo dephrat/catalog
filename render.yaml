@@ -1,0 +1,45 @@
+services:
+  - type: web
+    name: catalog
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    # One worker keeps the in-process job-state dicts authoritative;
+    # threads give concurrency so a slow /detective/ask can't stall polling.
+    startCommand: gunicorn app:app --workers 1 --threads 4 --bind 0.0.0.0:$PORT
+    envVars:
+      # Without this, print() output is block-buffered and never reaches the
+      # Render log stream. app.py also reconfigures stdout, but set it here so
+      # anything running before that is visible too.
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # Must point at the mounted disk, or the catalog is lost on every deploy.
+      - key: DB_PATH
+        value: /data/catalog.db
+      - key: SECRET_KEY
+        generateValue: true
+      - key: CLIENT_ID
+        sync: false
+      - key: CLIENT_SECRET
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: REDIRECT_URI
+        sync: false
+      # Access control. Without ADMIN_EMAIL nobody can sign in — the gate is
+      # fail-closed by design.
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: NOTIFY_EMAIL
+        sync: false
+      # Optional: approval-request emails via Resend. Unset just means
+      # requests are logged and approved at /admin instead.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+    disk:
+      name: catalog-db
+      mountPath: /data
+      sizeGB: 1

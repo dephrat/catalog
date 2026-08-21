@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Catalog — Detective</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f0f0f;
+      --surface: #171717;
+      --border: #2a2a2a;
+      --accent: #c8f97a;
+      --accent-dim: #a8d960;
+      --text: #e8e8e8;
+      --text-dim: #888;
+      --mono: 'DM Mono', monospace;
+      --sans: 'DM Sans', sans-serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      min-height: 100vh;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 1.5rem 2.5rem;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+    }
+
+    .logo {
+      font-family: var(--mono);
+      font-size: 1.1rem;
+      font-weight: 500;
+      color: var(--accent);
+      letter-spacing: -0.02em;
+    }
+
+    .logo span { color: var(--text-dim); }
+
+    .nav-tabs {
+      display: flex;
+      gap: 0.25rem;
+    }
+
+    .nav-tab {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      padding: 0.4rem 1rem;
+      border-radius: 4px;
+      border: 1px solid transparent;
+      text-decoration: none;
+      color: var(--text-dim);
+      transition: all 0.15s;
+    }
+
+    .nav-tab:hover {
+      color: var(--text);
+      border-color: var(--border);
+    }
+
+    .nav-tab.active {
+      color: var(--accent);
+      border-color: #3a5a1a;
+      background: #1e2a0f;
+    }
+
+    .main {
+      max-width: 860px;
+      padding: 3rem 2.5rem;
+    }
+
+    .page-label {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 0.5rem;
+    }
+
+    .page-desc {
+      font-size: 0.88rem;
+      color: var(--text-dim);
+      margin-bottom: 2rem;
+      line-height: 1.6;
+    }
+
+    .input-area {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      transition: border-color 0.15s;
+      margin-bottom: 1rem;
+    }
+
+    .input-area:focus-within {
+      border-color: var(--accent);
+    }
+
+    .input-area textarea {
+      width: 100%;
+      background: var(--surface);
+      border: none;
+      outline: none;
+      padding: 1rem 1.25rem;
+      font-family: var(--mono);
+      font-size: 0.9rem;
+      color: var(--text);
+      resize: none;
+      min-height: 90px;
+      line-height: 1.6;
+    }
+
+    .input-area textarea::placeholder {
+      color: var(--text-dim);
+    }
+
+    .input-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.6rem 1.25rem;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+    }
+
+    .input-hint {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--text-dim);
+    }
+
+    .btn-primary {
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      font-weight: 500;
+      padding: 0.5rem 1.25rem;
+      background: var(--accent);
+      border: none;
+      color: #0f0f0f;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: background 0.15s;
+    }
+
+    .btn-primary:hover { background: var(--accent-dim); }
+    .btn-primary:disabled {
+      background: #2a2a2a;
+      color: var(--text-dim);
+      cursor: not-allowed;
+    }
+
+    .btn-stop {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      padding: 0.35rem 0.9rem;
+      background: transparent;
+      border: 1px solid #444;
+      color: #888;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn-stop:hover {
+      border-color: #993333;
+      color: #cc4444;
+    }
+
+    /* Session output */
+    #session {
+      margin-top: 2rem;
+      display: none;
+    }
+
+    .session-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.25rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .session-title {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+    }
+
+    .session-query {
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      color: var(--accent);
+      margin-top: 0.2rem;
+    }
+
+    /* Round blocks */
+    .round-block {
+      margin-bottom: 1.25rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .round-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.6rem 1rem;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .round-label {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .round-status {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--text-dim);
+    }
+
+    .round-status.running { color: var(--accent); }
+    .round-status.done { color: #7aaa7a; }
+
+    .queries-row {
+      display: flex;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      flex-wrap: wrap;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .query-chip {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      padding: 0.25rem 0.65rem;
+      border-radius: 3px;
+      background: #1a1a1a;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+    }
+
+    .query-chip.searching {
+      border-color: #3a5a1a;
+      color: var(--accent);
+      background: #1e2a0f;
+    }
+
+    .query-chip.done {
+      border-color: #2a3a1a;
+      color: #8ab870;
+      background: #181e10;
+    }
+
+    .round-reasoning {
+      padding: 0.85rem 1rem;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      line-height: 1.7;
+      white-space: pre-wrap;
+    }
+
+    .result-rows {
+      border-top: 1px solid var(--border);
+    }
+
+    .result-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      padding: 0.65rem 1rem;
+      border-bottom: 1px solid #1e1e1e;
+      transition: background 0.1s;
+    }
+
+    .result-row:last-child { border-bottom: none; }
+    .result-row:hover { background: #1a1a1a; }
+
+    .result-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+      margin-top: 0.45rem;
+      flex-shrink: 0;
+    }
+
+    .result-info { flex: 1; min-width: 0; }
+
+    .result-subject {
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .result-meta {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      margin-top: 0.2rem;
+    }
+
+    .result-link {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--accent);
+      text-decoration: none;
+      white-space: nowrap;
+      padding: 0.2rem 0.5rem;
+      border: 1px solid #3a5a1a;
+      border-radius: 3px;
+      background: #1e2a0f;
+      flex-shrink: 0;
+    }
+
+    .result-link:hover { background: #2a3a14; }
+
+    .result-count-note {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      padding: 0.6rem 1rem;
+      border-top: 1px solid var(--border);
+      font-style: italic;
+    }
+
+    /* Final conclusion block */
+    .conclusion-block {
+      border: 1px solid #3a5a1a;
+      border-radius: 6px;
+      overflow: hidden;
+      margin-top: 0.5rem;
+    }
+
+    .conclusion-header {
+      padding: 0.6rem 1rem;
+      background: #1e2a0f;
+      border-bottom: 1px solid #3a5a1a;
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--accent);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .conclusion-body {
+      padding: 1rem;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      line-height: 1.7;
+      white-space: pre-wrap;
+    }
+
+    .conclusion-threads {
+      border-top: 1px solid #3a5a1a;
+      padding: 0.75rem 1rem;
+    }
+
+    .conclusion-threads-label {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 0.5rem;
+    }
+
+    .conclusion-thread-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #1e1e1e;
+    }
+
+    .conclusion-thread-row:last-child {
+      border-bottom: none;
+    }
+
+    /* Loading spinner */
+    .spinner {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border: 1.5px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin-right: 0.4rem;
+      vertical-align: middle;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .empty {
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      padding: 3rem 0;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">catalog<span>.ai</span></div>
+  <div class="nav-tabs">
+    <a href="/" class="nav-tab">search</a>
+    <a href="/detective" class="nav-tab active">detective</a>
+    {% if viewer_is_admin %}<a href="/admin" class="nav-tab">access</a>{% endif %}
+  </div>
+  <div style="display:flex;align-items:center;gap:0.75rem;justify-content:flex-end;"></div>
+</header>
+
+<div class="main">
+  <div class="page-label">detective mode</div>
+  <p class="page-desc">Describe what you're looking for in plain language. Detective will search your archive autonomously, refining its approach across multiple rounds until it finds the right email — or tells you honestly that it's not there.</p>
+
+  <div class="input-area">
+    <textarea id="query-input" placeholder="e.g. an assessment report from a clinic, probably 2009 or 2010, possibly from the university or the hospital..." rows="3"></textarea>
+    <div class="input-footer">
+      <span class="input-hint">up to 20 rounds · 60 searches · ~$0.10–0.30 per session</span>
+      <button class="btn-primary" id="start-btn" onclick="startDetective()">investigate</button>
+    </div>
+  </div>
+
+  <div id="session">
+    <div class="session-header">
+      <div>
+        <div class="session-title">investigating</div>
+        <div class="session-query" id="session-query-display"></div>
+      </div>
+      <button class="btn-stop" id="stop-btn" onclick="stopDetective()">stop</button>
+    </div>
+    <div id="rounds-container"></div>
+  </div>
+</div>
+
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<script>
+let stopped = false;
+let conversationHistory = [];
+
+function stopDetective() {
+  stopped = true;
+  document.getElementById('stop-btn').textContent = 'stopping...';
+  document.getElementById('stop-btn').disabled = true;
+  fetch('/detective/done', { method: 'POST' });
+}
+
+function setInputEnabled(enabled) {
+  document.getElementById('query-input').disabled = !enabled;
+  document.getElementById('start-btn').disabled = !enabled;
+  document.getElementById('stop-btn').style.display = enabled ? 'none' : 'inline-block';
+}
+
+async function runSearches(queries) {
+  return await Promise.all(queries.map(queryObj => {
+    const q = typeof queryObj === 'string' ? queryObj : queryObj.q;
+    const filters = (typeof queryObj === 'object' && queryObj.filters) ? queryObj.filters : {};
+    
+    const params = new URLSearchParams({ q });
+    if (filters.date_from) params.set('date_from', filters.date_from);
+    if (filters.date_to) params.set('date_to', filters.date_to);
+    if (filters.has_attachments) params.set('has_attachments', '1');
+    if (filters.has_multiple) params.set('has_multiple', '1');
+    if (filters.search_mode) params.set('search_mode', filters.search_mode);
+    if (filters.min_attachment_size) params.set('min_attachment_size', filters.min_attachment_size);
+
+    return fetch(`/detective/search?${params.toString()}`)
+      .then(r => {
+        if (r.status === 409) throw new Error('sync_running');
+        return r.json();
+      })
+      .catch(e => {
+        if (e.message === 'sync_running') throw e;
+        // Distinct from a real zero-result search: the model must not
+        // conclude "not in the archive" from a request that never ran.
+        return { count: 0, threads: [], failed: true };
+      });
+  }));
+}
+
+async function askClaude(messages, system) {
+  const resp = await fetch('/detective/ask', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages, system })
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error || 'model request failed');
+  }
+  const data = await resp.json();
+  if (!data.reply) throw new Error('empty reply from model');
+  return data.reply;
+}
+
+function parseClaudeResponse(text) {
+  console.log('parseClaudeResponse input:', text);
+  try {
+    const cleaned = text.replace(/```json|```/g, '').trim();
+    return JSON.parse(cleaned);
+  } catch {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (match) {
+      try { return JSON.parse(match[0]); } catch {}
+    }
+    return { conclusion: text, reasoning: '' };
+  }
+}
+
+function renderRound(roundNum) {
+  const container = document.getElementById('rounds-container');
+  const block = document.createElement('div');
+  block.className = 'round-block';
+  block.id = `round-${roundNum}`;
+  block.innerHTML = `
+    <div class="round-header">
+      <span class="round-label">round ${roundNum}</span>
+      <span class="round-status running" id="round-status-${roundNum}"><span class="spinner"></span>thinking...</span>
+    </div>
+    <div class="queries-row" id="queries-${roundNum}"></div>
+    <div class="round-reasoning" id="reasoning-${roundNum}"></div>
+    <div class="result-rows" id="results-${roundNum}"></div>
+  `;
+  container.appendChild(block);
+  return block;
+}
+
+function renderQueries(roundNum, queries, state='idle') {
+  const row = document.getElementById(`queries-${roundNum}`);
+  row.innerHTML = queries.map(queryObj => {
+    const q = typeof queryObj === 'string' ? queryObj : queryObj.q;
+    const filters = (typeof queryObj === 'object' && queryObj.filters) ? queryObj.filters : {};
+    const filterBadges = Object.entries(filters).map(([k, v]) => {
+      const labels = {
+        has_attachments: '📎',
+        has_multiple: '💬',
+        date_from: `from:${v}`,
+        date_to: `to:${v}`,
+        search_mode: v,
+        min_attachment_size: v
+      };
+      return `<span style="opacity:0.6;font-size:0.6rem;">${labels[k] || v}</span>`;
+    }).join(' ');
+    return `<span class="query-chip ${state}">${q}${filterBadges ? ' ' + filterBadges : ''}</span>`;
+  }).join('');
+}
+
+function renderResults(roundNum, results, queries) {
+  const container = document.getElementById(`results-${roundNum}`);
+  container.innerHTML = '';
+
+  const seen = new Set();
+  const allThreads = [];
+  results.forEach(r => {
+    (r.threads || []).forEach(t => {
+      if (!seen.has(t.thread_id)) {
+        seen.add(t.thread_id);
+        allThreads.push(t);
+      }
+    });
+  });
+
+  if (allThreads.length === 0) {
+    container.innerHTML = '<div class="result-count-note">no results found for these queries</div>';
+    return { threads: [], count: 0 };
+  }
+
+  const SHOW_LIMIT = 5;
+  const shown = allThreads.slice(0, SHOW_LIMIT);
+
+  shown.forEach(t => {
+    const row = document.createElement('div');
+    row.className = 'result-row';
+    const date = t.date_first ? t.date_first.slice(0, 10) : '';
+    const dateRange = t.date_last && t.date_last.slice(0,10) !== date
+      ? `${date} — ${t.date_last.slice(0,10)}` : date;
+    row.innerHTML = `
+      <div class="result-dot"></div>
+      <div class="result-info">
+        <div class="result-subject">${t.subject || '(no subject)'}</div>
+        <div class="result-meta">${t.participants_preview || ''} · ${dateRange}</div>
+      </div>
+      <a href="${t.web_link || '#'}" target="_blank" class="result-link">open ↗</a>
+    `;
+    container.appendChild(row);
+  });
+
+  if (allThreads.length > SHOW_LIMIT) {
+    const note = document.createElement('div');
+    note.className = 'result-count-note';
+    note.textContent = `+ ${allThreads.length - SHOW_LIMIT} more threads found`;
+    container.appendChild(note);
+  }
+
+  return { threads: allThreads, count: allThreads.length };
+}
+
+function renderConclusion(text, foundThreads) {
+  console.log('renderConclusion received:', text);
+  const container = document.getElementById('rounds-container');
+  const block = document.createElement('div');
+  block.className = 'conclusion-block';
+
+  // Extract bolded subjects from conclusion text — **subject here**
+  const threadPattern = /^THREAD: (.+)$/gm;
+  const referencedSubjects = [];
+  let match;
+  while ((match = threadPattern.exec(text)) !== null) {
+    referencedSubjects.push(match[1].trim());
+  }
+
+  // Match against allFoundThreads
+  const matchedThreads = [];
+  const unmatchedSubjects = [];
+
+  referencedSubjects.forEach(subject => {
+    const thread = foundThreads.find(t =>
+      t.subject && t.subject.trim().toLowerCase() === subject.toLowerCase()
+    );
+    if (thread) {
+      matchedThreads.push({ subject, thread });
+    } else {
+      unmatchedSubjects.push(subject);
+    }
+  });
+
+  // Build linked threads section
+  let threadsHtml = '';
+  if (matchedThreads.length > 0 || unmatchedSubjects.length > 0) {
+    threadsHtml += `<div class="conclusion-threads">`;
+    threadsHtml += `<div class="conclusion-threads-label">referenced threads</div>`;
+    matchedThreads.forEach(({ subject, thread }) => {
+      const date = thread.date_first ? thread.date_first.slice(0, 10) : '';
+      threadsHtml += `
+        <div class="conclusion-thread-row">
+          <div class="result-dot"></div>
+          <div class="result-info">
+            <div class="result-subject">${subject}</div>
+            <div class="result-meta">${thread.participants_preview || ''} · ${date}</div>
+          </div>
+          <a href="${thread.web_link || '#'}" target="_blank" class="result-link">open ↗</a>
+        </div>`;
+    });
+    unmatchedSubjects.forEach(subject => {
+      threadsHtml += `
+        <div class="conclusion-thread-row">
+          <div class="result-dot" style="background:#664444;"></div>
+          <div class="result-info">
+            <div class="result-subject">${subject}</div>
+            <div class="result-meta" style="color:#664444;">not found in results</div>
+          </div>
+        </div>`;
+    });
+    threadsHtml += `</div>`;
+  }
+
+  block.innerHTML = `
+    <div class="conclusion-header">conclusion</div>
+    <div class="conclusion-body">${marked.parse(text)}</div>
+    ${threadsHtml}
+  `;
+  container.appendChild(block);
+}
+
+async function startDetective() {
+  const query = document.getElementById('query-input').value.trim();
+  if (!query) return;
+
+  // Check if sync is running, and register detective as running
+  const startResp = await fetch('/detective/start', { method: 'POST' });
+  if (startResp.status === 409) {
+    alert('A sync is in progress. Please wait for it to finish before using Detective.');
+    return;
+  }
+
+  // Reset state
+  stopped = false;
+  conversationHistory = [];
+  document.getElementById('rounds-container').innerHTML = '';
+  document.getElementById('session-query-display').textContent = `"${query}"`;
+  document.getElementById('session').style.display = 'block';
+  document.getElementById('stop-btn').textContent = 'stop';
+  document.getElementById('stop-btn').disabled = false;
+  setInputEnabled(false);
+
+  const MAX_ROUNDS = 20;
+  let allFoundThreads = [];
+
+  const systemPrompt = `You are Detective, an AI assistant helping search through a person's email archive. The archive has been semantically tagged — emails are searchable by topics, names, organizations, dates, and concepts.
+
+You operate in rounds. Each round you generate exactly 3 search queries, each with its own optional filters. Queries run independently so use different filters per query to explore different angles simultaneously.
+
+Before your first round, briefly restate the key known facts extracted from the user's description (names, institutions, date ranges, document type). This grounds your search strategy.
+
+Search strategy — follow this approach:
+1. Start with the most unique identifier available (an unusual name, a specific term) to establish scale, then narrow with AND mode.
+2. Use OR mode for broad sweeps across related terms, AND mode to intersect concepts.
+3. Follow participant email addresses as leads — each new address found becomes a search term in the next round.
+4. Apply has_attachments filter only once you've identified relevant threads, to find actual documents vs. correspondence about documents.
+5. Use date ranges only to isolate specific known exchanges, never as a default — correspondence about an old document may be recent.
+6. Track unique identifiers like case numbers, reference numbers, tracking numbers as search terms the moment you spot them.
+
+Never use date filters in round 1. Names, email addresses, and unusual terms are always better than date ranges. Date filters are a last resort.
+
+Reasoning discipline — apply these rules every round:
+- Maintain a running structured map of confirmed facts in your reasoning: who is who, what role they play, what was found. Update it each round. Example: "J. Rivera (j.rivera@example.com) = specialist who authored the report | M. Chen (m.chen@example.org) = records office contact at the institution"
+- Always distinguish between correspondence ABOUT a document and the document itself. Finding a request for a record is not finding the record. Keep searching until you find the actual delivery or can confidently explain why it isn't there.
+- When you get 0 results, reason explicitly: is this a query problem (terms too specific, wrong keywords) or a data problem (document not in archive)? State which you believe and why before moving on.
+- Dead-end protocol: if you exhaust searches without finding the document, your conclusion must explain (1) everything you searched, (2) why the document is likely not in the archive, (3) exactly where it probably is and how to get it based on what the archive revealed — specific contacts, reference numbers, and next steps.
+
+Your response must ALWAYS be valid JSON in one of two formats:
+
+If continuing to next round:
+{
+  "reasoning": "update your running fact map, explain what you found this round and why you're trying next queries",
+  "queries": [
+    {
+      "q": "search terms",
+      "filters": {
+        "has_attachments": true,
+        "date_from": "2008-01-01",
+        "date_to": "2012-12-31",
+        "has_multiple": true,
+        "search_mode": "or",
+        "min_attachment_size": "large"
+      }
+    },
+    { "q": "another query" },
+    { "q": "third query", "filters": { "has_attachments": true } }
+  ]
+}
+
+If concluding (found it, exhausted search, or out of archive):
+{
+  "reasoning": "brief explanation",
+  "conclusion": "Your final message to the user. Write a structured summary: what you found, what the archive confirms, and specific actionable next steps with names, email addresses, and reference numbers found during the search. If found: tell them exactly which thread to open. If not found: explain where the document likely is and how to get it. IMPORTANT: To link specific threads for the user, you must output them in this exact format on their own line:\nTHREAD: exact subject line here\nDo not use this format for anything else. Only use it for email thread subjects that appeared verbatim in the search results."
+}
+
+Filter reference (all optional, omit if not needed):
+- has_attachments: true — only threads with attachments
+- date_from / date_to: "YYYY-MM-DD" — date range
+- has_multiple: true — only threads with replies
+- search_mode: "or" (any word matches) or "and" (all words must match)
+- min_attachment_size: "small" (10KB+), "medium" (100KB+), "large" (500KB+), "xlarge" (1MB+), "huge" (5MB+)
+
+Keep query terms short (1-4 words). Try varied angles — synonyms, dates, names, organizations, document types.`;
+
+  const firstUserMessage = `The user is looking for: "${query}"\n\nGenerate your first 3 search queries.`;
+  conversationHistory.push({ role: 'user', content: firstUserMessage });
+
+  try {
+    for (let round = 1; round <= MAX_ROUNDS; round++) {
+      if (stopped) break;
+
+      renderRound(round);
+
+      let claudeReply;
+      try {
+        claudeReply = await askClaude(conversationHistory, systemPrompt);
+      } catch (e) {
+        document.getElementById(`reasoning-${round}`).textContent = 'Error contacting Claude. Please try again.';
+        document.getElementById(`round-status-${round}`).className = 'round-status';
+        document.getElementById(`round-status-${round}`).textContent = 'error';
+        break;
+      }
+
+      conversationHistory.push({ role: 'assistant', content: claudeReply });
+
+      const parsed = parseClaudeResponse(claudeReply);
+      const reasoning = parsed.reasoning || '';
+      document.getElementById(`reasoning-${round}`).textContent = reasoning;
+
+      if (parsed.conclusion) {
+        document.getElementById(`round-status-${round}`).className = 'round-status done';
+        document.getElementById(`round-status-${round}`).textContent = 'concluded';
+        document.getElementById(`queries-${round}`).style.display = 'none';
+        renderConclusion(parsed.conclusion, allFoundThreads);
+        return;
+      }
+
+      const queries = parsed.queries || [];
+      if (queries.length === 0) break;
+
+      renderQueries(round, queries, 'searching');
+      document.getElementById(`round-status-${round}`).innerHTML = `<span class="spinner"></span>searching...`;
+
+      let results;
+      try {
+        results = await runSearches(queries);
+      } catch (e) {
+        if (e.message === 'sync_running') {
+          document.getElementById(`reasoning-${round}`).textContent = 'A sync started while Detective was running. Session paused.';
+          document.getElementById(`round-status-${round}`).className = 'round-status';
+          document.getElementById(`round-status-${round}`).textContent = 'interrupted';
+          break;
+        }
+        break;
+      }
+
+      renderQueries(round, queries, 'done');
+
+      const { threads, count } = renderResults(round, results, queries);
+      allFoundThreads.push(...threads.filter(t => !allFoundThreads.find(x => x.thread_id === t.thread_id)));
+
+      document.getElementById(`round-status-${round}`).className = 'round-status done';
+      document.getElementById(`round-status-${round}`).textContent = `${count} result${count !== 1 ? 's' : ''}`;
+
+      if (stopped) break;
+
+      const DETAIL_THRESHOLD = 100;
+      const failedCount = results.filter(r => r.failed).length;
+      // Surfaced explicitly so the model doesn't read a transport failure as
+      // evidence that nothing matched.
+      const failureNote = failedCount
+        ? `\n\nWARNING: ${failedCount} of ${queries.length} queries failed to run (network/server error). `
+          + `Treat those as UNKNOWN, not as zero results, and retry them next round.`
+        : '';
+
+      let resultSummary;
+      if (count >= DETAIL_THRESHOLD) {
+        resultSummary = `Queries returned ${count} total results (too many to list — please narrow down).`;
+      } else if (count === 0) {
+        resultSummary = `Queries returned 0 results.`;
+      } else {
+        const threadSummaries = threads.map(t =>
+          `- "${t.subject || '(no subject)'}" | ${t.date_first ? t.date_first.slice(0,10) : ''} | participants: ${t.participants_preview || ''} | tags: ${(t.tags_preview || []).join(', ')}`
+        ).join('\n');
+        resultSummary = `Queries returned ${count} result${count !== 1 ? 's' : ''}:\n${threadSummaries}`;
+      }
+
+      conversationHistory.push({
+        role: 'user',
+        content: `Round ${round} results:\n${resultSummary}${failureNote}\n\nContinue investigating or conclude?`
+      });
+    }
+
+    // If rounds exhausted without Claude concluding, ask Claude to write the conclusion
+    if (!stopped && document.querySelector('.conclusion-block') === null) {
+      conversationHistory.push({
+        role: 'user',
+        content: `You have used all ${MAX_ROUNDS} rounds. Based on everything you found, write your final conclusion now. Summarize what the archive confirmed, any specific names/emails/reference numbers discovered, and give the user clear actionable next steps.`
+      });
+
+      let finalReply;
+      try {
+        finalReply = await askClaude(conversationHistory, systemPrompt);
+        const finalParsed = parseClaudeResponse(finalReply);
+        renderConclusion(finalParsed.conclusion || finalParsed.reasoning || finalReply, allFoundThreads);
+      } catch (e) {
+        renderConclusion(`Search exhausted after ${MAX_ROUNDS} rounds. ${allFoundThreads.length > 0
+          ? `Found ${allFoundThreads.length} potentially relevant thread(s) above — review the results from each round.`
+          : "No matching emails were found in the archive."
+        }`, allFoundThreads);
+      }
+    }
+
+  } finally {
+    fetch('/detective/done', { method: 'POST' });
+    setInputEnabled(true);
+  }
+}
+</script>
+</body>
+</html>

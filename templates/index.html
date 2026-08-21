@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Catalog</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f0f0f;
+      --surface: #171717;
+      --border: #2a2a2a;
+      --accent: #c8f97a;
+      --accent-dim: #a8d960;
+      --text: #e8e8e8;
+      --text-dim: #888;
+      --mono: 'DM Mono', monospace;
+      --sans: 'DM Sans', sans-serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      min-height: 100vh;
+      padding: 0;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 1.5rem 2.5rem;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+    }
+
+    .logo {
+      font-family: var(--mono);
+      font-size: 1.1rem;
+      font-weight: 500;
+      color: var(--accent);
+      letter-spacing: -0.02em;
+    }
+
+    .logo span { color: var(--text-dim); }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .search-section {
+      padding: 3rem 2.5rem 2rem;
+      max-width: 860px;
+    }
+
+    .search-label {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 0.75rem;
+    }
+
+    .search-bar {
+      display: flex;
+      gap: 0;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      transition: border-color 0.15s;
+      margin-bottom: 1rem;
+    }
+
+    .search-bar:focus-within { border-color: var(--accent); }
+
+    .search-bar input {
+      flex: 1;
+      background: var(--surface);
+      border: none;
+      outline: none;
+      padding: 0.85rem 1.25rem;
+      font-family: var(--mono);
+      font-size: 0.95rem;
+      color: var(--text);
+    }
+
+    .search-bar input::placeholder { color: var(--text-dim); }
+
+    .search-bar button {
+      background: var(--accent);
+      border: none;
+      padding: 0 1.5rem;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: #0f0f0f;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .search-bar button:hover { background: var(--accent-dim); }
+
+    .filters {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--text-dim);
+    }
+
+    .filter-group input[type="date"],
+    .filter-group select {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      padding: 0.3rem 0.5rem;
+      border-radius: 4px;
+      outline: none;
+    }
+
+    .filter-group input[type="checkbox"] { accent-color: var(--accent); }
+
+    .results-section {
+      padding: 0 2.5rem 3rem;
+      max-width: 860px;
+    }
+
+    .results-meta {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      margin-bottom: 1.25rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .thread-card {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1.1rem 1.25rem;
+      margin-bottom: 0.6rem;
+      background: var(--surface);
+      transition: border-color 0.15s;
+    }
+
+    .thread-card:hover { border-color: #444; }
+
+    .thread-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .thread-subject {
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .thread-date {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+
+    .thread-participants {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      margin-bottom: 0.6rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .thread-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .tag {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 3px;
+      background: #1e1e1e;
+      color: var(--text-dim);
+      border: 1px solid var(--border);
+    }
+
+    .tag.user {
+      background: #10221e;
+      color: #6fd3b8;
+      border-color: #23514a;
+      cursor: pointer;
+    }
+
+    .tag.user:hover { border-color: #6fd3b8; }
+
+    .tag.add-tag {
+      background: transparent;
+      color: var(--text-dim);
+      border: 1px dashed var(--border);
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 0.65rem;
+    }
+
+    .tag.add-tag:hover { border-color: var(--accent); color: var(--accent); }
+
+    .tag.match {
+      background: #1e2a0f;
+      color: var(--accent);
+      border-color: #3a5a1a;
+    }
+
+    .attachment-badge {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 3px;
+      background: #1a1a2e;
+      color: #7a7af0;
+      border: 1px solid #2a2a5a;
+    }
+
+    .dropdown-btn {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      padding: 0.3rem 0.75rem;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .dropdown-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .dropdown-list {
+      margin-top: 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .dropdown-item {
+      display: block;
+      padding: 0.5rem 0.75rem;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      text-decoration: none;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.1s;
+    }
+
+    .dropdown-item:last-child { border-bottom: none; }
+
+    .dropdown-item:hover {
+      background: #1e1e1e;
+      color: var(--accent);
+    }
+
+    .empty {
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      padding: 3rem 0;
+      text-align: center;
+    }
+
+    .warn-badge {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 3px;
+      background: #2a1a0a;
+      color: #f0a040;
+      border: 1px solid #5a3a0a;
+    }
+
+    .nav-tabs {
+      display: flex;
+      gap: 0.25rem;
+    }
+
+    .nav-tab {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      padding: 0.4rem 1rem;
+      border-radius: 4px;
+      border: 1px solid transparent;
+      text-decoration: none;
+      color: var(--text-dim);
+      transition: all 0.15s;
+    }
+
+    .nav-tab:hover {
+      color: var(--text);
+      border-color: var(--border);
+    }
+
+    .nav-tab.active {
+      color: var(--accent);
+      border-color: #3a5a1a;
+      background: #1e2a0f;
+    }
+
+    #export-btn {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      text-decoration: none;
+      padding: 0.3rem 0.6rem;
+      border-radius: 4px;
+      border: 1px solid transparent;
+      transition: all 0.15s;
+    }
+
+    #export-btn:hover { color: var(--accent); border-color: var(--border); }
+
+    #sync-btn {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      font-weight: 500;
+      padding: 0.4rem 1.25rem;
+      background: var(--accent);
+      border: none;
+      color: #0f0f0f;
+      cursor: pointer;
+      border-radius: 6px;
+      transition: all 0.15s;
+    }
+
+    #sync-btn:hover {
+      background: var(--accent-dim);
+    }
+
+    #wipe-btn {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      padding: 0.4rem 1rem;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: #664444;
+      cursor: pointer;
+      border-radius: 4px;
+      text-decoration: none;
+      transition: all 0.15s;
+    }
+
+    #wipe-btn:hover {
+      border-color: #993333;
+      color: #993333;
+    }
+
+    #progress-wrap {
+      display: none;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    #progress-bar-bg {
+      width: 160px;
+      height: 4px;
+      background: #2a2a2a;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    #progress-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      border-radius: 2px;
+      transition: width 0.3s;
+    }
+
+    #progress-text {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--text-dim);
+    }
+
+    #stop-btn {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      padding: 0.3rem 0.75rem;
+      background: transparent;
+      border: 1px solid #444;
+      color: #888;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    #stop-btn:hover {
+      border-color: #993333;
+      color: #993333;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">catalog<span>.ai</span></div>
+  <div class="nav-tabs">
+    <a href="/" class="nav-tab active">search</a>
+    <a href="/detective" class="nav-tab">detective</a>
+    {% if viewer_is_admin %}<a href="/admin" class="nav-tab">access</a>{% endif %}
+  </div>
+  <div style="display:flex;align-items:center;gap:0.75rem;justify-content:flex-end;">
+    <div id="progress-wrap">
+      <div id="progress-bar-bg">
+        <div id="progress-fill"></div>
+      </div>
+      <span id="progress-text"></span>
+      <button id="stop-btn" onclick="stopSync()">stop</button>
+    </div>
+    {% if not demo_mode %}<button id="sync-btn" onclick="startSync()">⟳ Scan my emails</button>{% endif %}
+    <span id="stale-note" style="display:none;font-family:var(--mono);font-size:0.68rem;color:#f0a040;">
+      previous sync stopped — scan again to resume
+    </span>
+    <a id="export-btn" href="/export" title="download this catalog, tags included">⭳ export</a>
+    {% if not demo_mode %}<a id="wipe-btn" href="#" onclick="wipeCatalog(); return false;">✕ wipe</a>{% endif %}
+  </div>
+</header>
+
+{% if demo_mode %}
+<div style="margin:0 0 1rem;padding:0.6rem 1rem;border:1px solid #4a5a2a;background:#181e10;
+            font-family:var(--mono);font-size:0.72rem;color:#9db36a;">
+  demo catalog — 326 fabricated threads, a decade of one invented household's mail.
+  Search and filters are fully live. Detective works too if ANTHROPIC_API_KEY is set.
+  Sync is disabled: there is no mailbox behind this.
+</div>
+{% endif %}
+<div class="search-section">
+  <div class="search-label">search your email archive</div>
+  <form method="GET" action="/">
+    <div class="search-bar">
+      <input type="text" name="q" placeholder="honda, car loan, 2016, dentist, invoice..." value="{{ query or '' }}" autofocus />
+      <button type="submit">search</button>
+    </div>
+    <div class="filters">
+      <div class="filter-group">
+        <label>from</label>
+        <input type="date" name="date_from" value="{{ date_from or '' }}" />
+      </div>
+      <div class="filter-group">
+        <label>to</label>
+        <input type="date" name="date_to" value="{{ date_to or '' }}" />
+      </div>
+      <div class="filter-group">
+        <input type="checkbox" name="has_attachments" id="att" value="1" {{ 'checked' if has_attachments }} />
+        <label for="att">has attachments</label>
+      </div>
+      <div class="filter-group">
+        <input type="checkbox" name="has_multiple" id="has_multiple" value="1" {{ 'checked' if has_multiple }} />
+        <label for="has_multiple">has replies</label>
+      </div>
+      <div class="filter-group">
+        <input type="checkbox" name="search_mode" id="search_mode" value="or" {{ 'checked' if search_mode == 'or' }} />
+        <label for="search_mode">match any word</label>
+      </div>
+      <div class="filter-group">
+        <label>sort</label>
+        <select name="sort_by">
+          <option value="last_synced" {{ 'selected' if sort_by == 'last_synced' or not sort_by }}>recently tagged</option>
+          <option value="date_desc" {{ 'selected' if sort_by == 'date_desc' }}>newest email</option>
+          <option value="date_asc" {{ 'selected' if sort_by == 'date_asc' }}>oldest email</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>min attachment</label>
+        <select name="min_attachment_size">
+          <option value="" {{ 'selected' if not min_attachment_size }}>any size</option>
+          <option value="10" {{ 'selected' if min_attachment_size == '10' }}>10KB+</option>
+          <option value="100" {{ 'selected' if min_attachment_size == '100' }}>100KB+</option>
+          <option value="500" {{ 'selected' if min_attachment_size == '500' }}>500KB+</option>
+          <option value="1000" {{ 'selected' if min_attachment_size == '1000' }}>1MB+</option>
+          <option value="5000" {{ 'selected' if min_attachment_size == '5000' }}>5MB+</option>
+          <option value="10000" {{ 'selected' if min_attachment_size == '10000' }}>10MB+</option>
+          <option value="50000" {{ 'selected' if min_attachment_size == '50000' }}>50MB+</option>
+          <option value="100000" {{ 'selected' if min_attachment_size == '100000' }}>100MB+</option>
+          <option value="500000" {{ 'selected' if min_attachment_size == '500000' }}>500MB+</option>
+          <option value="1000000" {{ 'selected' if min_attachment_size == '1000000' }}>1GB+</option>
+        </select>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="results-section">
+  {% if threads is not none %}
+    <div class="results-meta">
+      {%- if total_matches and total_matches > threads|length -%}
+        showing {{ threads|length }} of {{ "{:,}".format(total_matches) }} results
+      {%- else -%}
+        {{ threads|length }} result{{ 's' if threads|length != 1 }}
+      {%- endif %}
+      {%- if query %} for "{{ query }}"{% endif %}
+      {%- if search_ms is not none %} &middot; {{ "%.0f"|format(search_ms) }}ms{% endif %}
+      {%- if total_matches and total_matches > threads|length %}
+        &middot; <span style="color:#f0a040;">narrow your search to see the rest</span>
+      {%- endif %}
+    </div>
+    {% if threads %}
+      {% for t in threads %}
+        <div class="thread-card">
+          <div class="thread-top">
+            <div class="thread-subject">{{ t.subject or '(no subject)' }}</div>
+            <div style="display:flex;align-items:center;gap:0.5rem;">
+              {% if t.has_attachments %}<span class="attachment-badge">⊕ attachment</span>{% endif %}
+              {% if t.body_scan_status == 'truncated' %}
+                <span class="warn-badge">⚠ body incomplete</span>
+              {% endif %}
+              {% if t.attachments_incomplete %}
+                <span class="warn-badge">⚠ attachment incomplete</span>
+              {% endif %}
+              {% if t.tags_truncated %}
+                <span class="warn-badge">⚠ tags incomplete</span>
+              {% endif %}
+              <div class="thread-date">
+                {% if t.date_first and t.date_first[:10] != t.date_last[:10] %}
+                  {{ t.date_first[:10] }} — {{ t.date_last[:10] }}
+                {% else %}
+                  {{ t.date_last[:10] if t.date_last }}
+                {% endif %}
+              </div>
+            </div>
+          </div>
+          <div class="thread-participants">{{ t.participants_str }}</div>
+          <div class="thread-tags" data-thread-id="{{ t.thread_id }}">
+            {% for tag in t.ai_tags_list %}
+              <span class="tag {{ 'match' if query_words and (tag|matches_query(query_words)) }}">{{ tag }}</span>
+            {% endfor %}
+            {% for tag in t.user_tags_list %}
+              <span class="tag user {{ 'match' if query_words and (tag|matches_query(query_words)) }}"
+                    data-tag="{{ tag }}" title="click to remove">{{ tag }} ×</span>
+            {% endfor %}
+            <button type="button" class="tag add-tag" title="add a tag">+ tag</button>
+          </div>
+          <div>
+            <button class="dropdown-btn" onclick="toggleDropdown(this)">view messages ▾</button>
+            <div class="dropdown-list" style="display:none;">
+              {% for msg in t.message_ids_parsed %}
+                <a href="{{ msg.web_link }}" target="_blank" class="dropdown-item">
+                  {{ msg.date }}{% if msg.has_attachments %} 📎{% endif %}
+                </a>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty">no results found — try a different word</div>
+    {% endif %}
+  {% else %}
+    <div class="empty">search your emails above, or sync to index your inbox</div>
+  {% endif %}
+</div>
+
+<script>
+  let pollInterval = null;
+  let syncStartTime = null;
+  let seenActiveSync = false;
+
+  function startSync() {
+    fetch('/detective/status')
+      .then(r => r.json())
+      .then(data => {
+        if (data.running) {
+          alert('Detective is running. Please wait for it to finish before syncing.');
+          return;
+        }
+        if (!confirm('Start scanning your emails?')) return;
+        fetch('/sync');
+        syncStartTime = Date.now();
+        seenActiveSync = true;
+        showProgress();
+      });
+  }
+
+  // Tag editing. Thread ids ride in data attributes rather than inline JS,
+  // so nothing in a subject or id can break out of the markup.
+  async function postTags(container, payload) {
+    const threadId = container.dataset.threadId;
+    const resp = await fetch(`/threads/${encodeURIComponent(threadId)}/tags`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (resp.status === 401) { window.location.href = '/login'; return null; }
+    if (!resp.ok) { alert('Could not update tags.'); return null; }
+    return (await resp.json()).user_tags;
+  }
+
+  function renderUserTags(container, tags) {
+    container.querySelectorAll('.tag.user').forEach(el => el.remove());
+    const addBtn = container.querySelector('.add-tag');
+    tags.forEach(tag => {
+      const el = document.createElement('span');
+      el.className = 'tag user';
+      el.dataset.tag = tag;
+      el.title = 'click to remove';
+      el.textContent = tag + ' \u00d7';
+      container.insertBefore(el, addBtn);
+    });
+  }
+
+  document.addEventListener('click', async (e) => {
+    const addBtn = e.target.closest('.add-tag');
+    if (addBtn) {
+      const container = addBtn.closest('.thread-tags');
+      const raw = prompt('Add tag(s), comma-separated:');
+      if (!raw) return;
+      const add = raw.split(',').map(t => t.trim()).filter(Boolean);
+      if (!add.length) return;
+      const tags = await postTags(container, { add });
+      if (tags) renderUserTags(container, tags);
+      return;
+    }
+
+    const userTag = e.target.closest('.tag.user');
+    if (userTag) {
+      const container = userTag.closest('.thread-tags');
+      const tag = userTag.dataset.tag;
+      if (!confirm(`Remove tag "${tag}"?`)) return;
+      const tags = await postTags(container, { remove: [tag] });
+      if (tags) renderUserTags(container, tags);
+    }
+  });
+
+  function wipeCatalog() {
+    if (!confirm('Wipe all data and start fresh?')) return;
+    fetch('/wipe', { method: 'POST' })
+      .then(r => {
+        if (!r.ok) throw new Error('wipe failed');
+        window.location.href = '/';
+      })
+      .catch(() => alert('Wipe failed. Please try again.'));
+  }
+
+  function stopSync() {
+    fetch('/sync/stop');
+    const btn = document.getElementById('stop-btn');
+    btn.textContent = 'stopping...';
+    btn.style.background = '#993333';
+    btn.style.borderColor = '#993333';
+    btn.style.color = '#ffffff';
+    btn.disabled = true;
+    btn.style.cursor = 'not-allowed';
+  }
+
+  function showProgress() {
+    if (!syncStartTime) syncStartTime = Date.now();
+    document.getElementById('progress-wrap').style.display = 'flex';
+    document.getElementById('sync-btn').style.display = 'none';
+    if (!pollInterval) {
+      pollInterval = setInterval(pollProgress, 1000);
+    }
+  }
+
+  function hideProgress() {
+    document.getElementById('progress-wrap').style.display = 'none';
+    document.getElementById('sync-btn').style.display = 'inline-block';
+    const btn = document.getElementById('stop-btn');
+    btn.textContent = 'stop';
+    btn.style.background = 'transparent';
+    btn.style.borderColor = '#444';
+    btn.style.color = '#888';
+    btn.disabled = false;
+    btn.style.cursor = 'pointer';
+    if (pollInterval) {
+      clearInterval(pollInterval);
+      pollInterval = null;
+    }
+    syncStartTime = null;
+    seenActiveSync = false;
+  }
+
+  function pollProgress() {
+    fetch('/sync/progress')
+      .then(r => {
+        // Session expired: bounce to login instead of feeding HTML to JSON.parse
+        if (r.status === 401) { window.location.href = '/login'; throw new Error('unauthenticated'); }
+        return r.json();
+      })
+      .then(data => {
+        const { current, total, status, stale } = data;
+
+        // A sync whose heartbeat stopped is dead. Say so and offer a restart
+        // rather than showing a progress bar that will never move again.
+        if (stale || status === 'interrupted') {
+          seenActiveSync = false;
+          hideProgress();
+          const note = document.getElementById('stale-note');
+          if (note) note.style.display = 'inline';
+          return;
+        } else {
+          const note = document.getElementById('stale-note');
+          if (note) note.style.display = 'none';
+        }
+
+        if (status === 'auth_expired') {
+          seenActiveSync = false;
+          showProgress();
+          document.getElementById('progress-fill').style.width = '100%';
+          document.getElementById('progress-text').innerHTML =
+            'Microsoft sign-in expired — <a href="/login" style="text-decoration:underline;">sign in again</a>';
+          return;
+        }
+
+        if (status === 'checking folders') {
+          seenActiveSync = true;
+          showProgress();
+          const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+          document.getElementById('progress-fill').style.width = Math.max(pct, 3) + '%';
+          document.getElementById('progress-text').textContent =
+            total > 0 ? `checking folders ${current}/${total}` : 'checking folders for new mail...';
+          return;
+        }
+
+        if (status === 'indexing threads' || status === 'updating threads') {
+          seenActiveSync = true;
+          showProgress();
+          const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+          document.getElementById('progress-fill').style.width = Math.max(pct, 5) + '%';
+          const verb = status === 'indexing threads' ? 'indexing' : 'updating';
+          document.getElementById('progress-text').textContent =
+            `${verb} ${current}/${total} threads`;
+          return;
+        }
+
+        if (status === 'idle' || status === 'done' || status === 'stopped' || status === 'error') {
+          if ((status === 'done' || status === 'stopped' || status === 'error') && seenActiveSync) {
+            const msg = status === 'done' ? `done — ${total} threads` :
+                        status === 'stopped' ? `stopped at ${current}/${total}` : 'error';
+            document.getElementById('progress-text').textContent = msg;
+            document.getElementById('progress-fill').style.width = '100%';
+            setTimeout(hideProgress, 3000);
+          } else {
+            hideProgress();
+          }
+          return;
+        }
+
+
+        if (status === 'tagging (batch)') {
+          seenActiveSync = true;
+          showProgress();
+          document.getElementById('progress-fill').style.width = '85%';
+          document.getElementById('progress-text').textContent =
+            `tagging ${total} threads in the background — they are already searchable by subject`;
+          return;
+        }
+
+        if (status === 'processing') {
+          seenActiveSync = true;
+          showProgress();
+          const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+          document.getElementById('progress-fill').style.width = pct + '%';
+          document.getElementById('progress-text').textContent = `processing ${current}/${total} threads`;
+          return;
+        }
+
+        if (status === 'reading attachments') {
+          seenActiveSync = true;
+          showProgress();
+          document.getElementById('progress-fill').style.width = '10%';
+          document.getElementById('progress-text').textContent = 'fetching attachment list...';
+          return;
+        }
+
+        if (status === 'downloading attachments') {
+          seenActiveSync = true;
+          showProgress();
+          document.getElementById('progress-fill').style.width = '15%';
+          document.getElementById('progress-text').textContent = 'fetching attachment content...';
+          return;
+        }
+
+        if (status === 'retagging') {
+          seenActiveSync = true;
+          showProgress();
+          const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+          document.getElementById('progress-fill').style.width = pct + '%';
+          document.getElementById('progress-text').textContent = `retagging ${current}/${total} threads`;
+          return;
+        }
+
+        if (total > 0) {
+          seenActiveSync = true;
+          showProgress();
+          const pct = Math.round((current / total) * 100);
+          document.getElementById('progress-fill').style.width = pct + '%';
+
+          let etaText = '';
+          if (syncStartTime && current > 0) {
+            const elapsed = (Date.now() - syncStartTime) / 1000;
+            const rate = current / elapsed;
+            const remaining = (total - current) / rate;
+            if (remaining > 60) {
+              etaText = ` — ~${Math.round(remaining / 60)}m left`;
+            } else {
+              etaText = ` — ~${Math.round(remaining)}s left`;
+            }
+          }
+
+          document.getElementById('progress-text').textContent = `${current}/${total} (${pct}%)${etaText}`;
+        }
+      })
+      .catch(() => {
+        hideProgress();
+      });
+  }
+
+  function toggleDropdown(btn) {
+    const list = btn.nextElementSibling;
+    const open = list.style.display === 'block';
+    list.style.display = open ? 'none' : 'block';
+    btn.textContent = open ? 'view messages ▾' : 'view messages ▴';
+  }
+
+  pollProgress();
+  pollInterval = setInterval(pollProgress, 1000);
+</script>
+</body>
+</html>

@@ -1,0 +1,229 @@
+#!/usr/bin/env python3
+"""Block secrets and real mailbox data from being committed.
+
+Reads the *bytes* of each staged file. The predecessor of this script grepped
+`git diff --cached`, which emits nothing for binary files — so a vim swap file
+on .env sailed through with a live CLIENT_SECRET inside it. Never scan diffs;
+scan content.
+
+Usage:
+    python scripts/check_secrets.py           # staged files (pre-commit)
+    python scripts/check_secrets.py --all     # every tracked file
+    python scripts/check_secrets.py --history # every blob in every commit
+    python scripts/check_secrets.py --tree DIR # every file on disk under DIR
+
+--tree exists because "clean" once meant "nothing staged and nothing in
+history" while a gitignored swap file holding live credentials sat in the
+working directory, one `git add -f` away from being published.
+"""
+import re
+import subprocess
+import sys
+
+# Filenames that should never be committed regardless of content.
+FORBIDDEN_NAMES = [
+    (re.compile(r"(^|/)\.env(\.(?!example$).*)?$"), "environment file"),
+    (re.compile(r"\.sw[a-p]$"), "editor swap file (may contain a secret in binary form)"),
+    (re.compile(r"\.(db|sqlite3?|db-wal|db-shm|db-journal)$"), "database"),
+    (re.compile(r"\.db\.backup$"), "database backup"),
+    (re.compile(r"\.(pem|key|p12|pfx)$"), "private key"),
+    (re.compile(r"\.(png|jpe?g|gif|webp)$"), "image (screenshots can leak mail contents)"),
+]
+
+# A value that is code reading an env var, not a literal secret.
+SKIP_VALUE = rb"(?!os\.getenv|os\.environ|process\.env|None|\"\"|\'\')\S{8,}"
+
+# Content patterns, matched against raw bytes so binary files are covered.
+SECRET_PATTERNS = [
+    (re.compile(rb"sk-ant-[A-Za-z0-9_\-]{8,}"), "Anthropic API key"),
+    # Two deliberate details:
+    #  - [^\S\n]* not \s*, because \s matches newlines and "KEY=" on an
+    #    otherwise-empty line then matched the NEXT line's contents.
+    #  - SKIP_VALUE skips `KEY = os.getenv(...)`, which is code reading a
+    #    secret, not a secret. Without it every module that loads config trips
+    #    the scanner, and a scanner that cries wolf gets bypassed.
+    (re.compile(rb"CLIENT_SECRET[^\S\n]*=[^\S\n]*" + SKIP_VALUE), "CLIENT_SECRET assignment"),
+    (re.compile(rb"ANTHROPIC_API_KEY[^\S\n]*=[^\S\n]*" + SKIP_VALUE), "ANTHROPIC_API_KEY assignment"),
+    (re.compile(rb"SECRET_KEY[^\S\n]*=[^\S\n]*" + SKIP_VALUE), "SECRET_KEY assignment"),
+    (re.compile(rb"RESEND_API_KEY[^\S\n]*=[^\S\n]*" + SKIP_VALUE), "RESEND_API_KEY assignment"),
+    (re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "private key block"),
+    (re.compile(rb"AKIA[0-9A-Z]{16}"), "AWS access key id"),
+    (re.compile(rb"gh[pousr]_[A-Za-z0-9]{20,}"), "GitHub token"),
+]
+
+# Real mailbox data. Free-mail domains are the tell; example.* is fine.
+PERSONAL = re.compile(
+    rb"[A-Za-z0-9._%+\-]+@(?:gmail|hotmail|outlook|yahoo|live|icloud|aol)\.[a-z.]{2,}",
+    re.I,
+)
+ALLOWED_PERSONAL = {b"you@example.com", b"user@example.com"}
+
+
+def staged_files():
+    out = subprocess.run(["git", "diff", "--cached", "--name-only", "--diff-filter=d"],
+                         capture_output=True, text=True).stdout
+    return [p for p in out.splitlines() if p]
+
+
+def tracked_files():
+    out = subprocess.run(["git", "ls-files"], capture_output=True, text=True).stdout
+    return [p for p in out.splitlines() if p]
+
+
+def staged_bytes(path):
+    r = subprocess.run(["git", "show", f":{path}"], capture_output=True)
+    return r.stdout if r.returncode == 0 else b""
+
+
+MAX_FINDINGS_PER_FILE = 5
+
+
+def scan(path, data):
+    """Reasons this file must not be committed. Bounded, and cheap first.
+
+    Scanning a 40MB database for every address produced 855 findings and took
+    minutes. The filename alone already condemns it, so content scanning is
+    skipped once a name rule matches — the verdict cannot change.
+    """
+    problems = []
+    for pattern, why in FORBIDDEN_NAMES:
+        if pattern.search(path):
+            problems.append(f"forbidden file type: {why}")
+    if problems:
+        return problems
+
+    for pattern, why in SECRET_PATTERNS:
+        if pattern.search(data):
+            problems.append(f"contains {why}")
+
+    seen = set()
+    for match in PERSONAL.finditer(data):
+        hit = match.group(0)
+        if hit.lower() in ALLOWED_PERSONAL or hit in seen:
+            continue
+        seen.add(hit)
+        problems.append(f"real email address: {hit.decode('utf-8', 'replace')}")
+        if len(problems) >= MAX_FINDINGS_PER_FILE:
+            problems.append("... more matches not listed")
+            break
+    return problems
+
+
+def scan_history():
+    """Every blob in every commit — the only honest answer to 'is the repo clean?'"""
+    rev = subprocess.run(["git", "rev-list", "--objects", "--all"],
+                         capture_output=True, text=True).stdout
+    findings = {}
+    for line in rev.splitlines():
+        parts = line.split(maxsplit=1)
+        if len(parts) != 2:
+            continue
+        sha, path = parts
+        kind = subprocess.run(["git", "cat-file", "-t", sha],
+                              capture_output=True, text=True).stdout.strip()
+        if kind != "blob":
+            continue
+        data = subprocess.run(["git", "cat-file", "-p", sha], capture_output=True).stdout
+        problems = scan(path, data)
+        if problems:
+            findings.setdefault(path, set()).update(problems)
+    return findings
+
+
+def walk_tree(root):
+    import os
+    skip = {".git", "venv", ".venv", "__pycache__", "node_modules"}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in skip]
+        for name in filenames:
+            yield os.path.join(dirpath, name)
+
+
+def main():
+    mode = sys.argv[1] if len(sys.argv) > 1 else "--staged"
+
+    if mode == "--tree":
+        # --strict: a publish candidate should contain no secret-bearing file
+        # at all. "git ignores it" is adequate for a dev tree, where the
+        # developer's own database belongs, but not for a directory about to
+        # be handed to the world — an ignored file is still one `git add -f`
+        # or one zip away from being published.
+        strict = "--strict" in sys.argv
+        args = [a for a in sys.argv[2:] if not a.startswith("--")]
+        root = args[0] if args else "."
+        failed = False
+        count = 0
+        ignored_hits = []
+        for full in walk_tree(root):
+            count += 1
+            rel = full[len(root):].lstrip("/")
+            try:
+                data = open(full, "rb").read()
+            except OSError:
+                continue
+            problems = scan(rel, data)
+            if not problems:
+                continue
+            # A local database full of real mail is expected in a dev tree and
+            # is not a publishing risk while git ignores it. Saying BLOCKED for
+            # it is how a scanner earns a reputation for crying wolf.
+            ignored = subprocess.run(["git", "check-ignore", "-q", full],
+                                     cwd=root).returncode == 0
+            if ignored and not strict:
+                ignored_hits.append((rel, len(problems)))
+            else:
+                for problem in problems:
+                    print(f"BLOCKED  {rel}: {problem}")
+                failed = True
+
+        if ignored_hits:
+            print("Local files carrying real data (git-ignored, will not publish):")
+            for rel, n in ignored_hits:
+                print(f"  ok  {rel} — {n} finding(s), ignored by git")
+        if failed:
+            if strict:
+                print("\nA publish candidate must contain no secret-bearing file at")
+                print("all, ignored or not. Remove them.")
+            else:
+                print("\nThe files above are NOT ignored by git and carry secrets or")
+                print("personal data. Remove them before publishing.")
+            return 1
+        print(f"checked {count} file(s) on disk — nothing publishable is dirty")
+        return 0
+
+    if mode == "--history":
+        findings = scan_history()
+        for path, problems in sorted(findings.items()):
+            for p in sorted(problems):
+                print(f"  {path}: {p}")
+        if findings:
+            print(f"\n{len(findings)} path(s) with problems in git history.")
+            print("History rewriting or a fresh repo is required.")
+            return 1
+        print("History is clean.")
+        return 0
+
+    paths = tracked_files() if mode == "--all" else staged_files()
+    reader = (lambda p: open(p, "rb").read()) if mode == "--all" else staged_bytes
+
+    failed = False
+    for path in paths:
+        try:
+            data = reader(path)
+        except OSError:
+            continue
+        for problem in scan(path, data):
+            print(f"BLOCKED  {path}: {problem}")
+            failed = True
+
+    if failed:
+        print("\nCommit refused. If a match is a false positive, fix the pattern in")
+        print("scripts/check_secrets.py rather than bypassing with --no-verify.")
+        return 1
+
+    print(f"checked {len(paths)} file(s) — clean")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,39 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/><title>Catalog — access</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg:#0f0f0f;--surface:#171717;--border:#2a2a2a;--accent:#c8f97a;
+          --text:#e8e8e8;--dim:#888;--mono:"DM Mono",monospace;--sans:"DM Sans",sans-serif}
+    body{background:var(--bg);color:var(--text);font-family:var(--sans);
+         min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:8px;
+          padding:2.5rem;max-width:620px;width:100%}
+    h1{font-family:var(--mono);font-size:1rem;color:var(--accent);margin-bottom:1rem;font-weight:500}
+    p{font-size:.9rem;line-height:1.6;color:var(--dim);margin-bottom:.75rem}
+    strong{color:var(--text)}
+    .mono{font-family:var(--mono);font-size:.8rem}
+    button,.btn{font-family:var(--mono);font-size:.78rem;padding:.5rem 1.1rem;border-radius:4px;
+           cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--text);
+           text-decoration:none;display:inline-block;margin-right:.5rem}
+    .ok{background:var(--accent);color:#0f0f0f;border-color:var(--accent)}
+    .bad{border-color:#5a2a2a;color:#f08080}
+    button:hover{opacity:.85}
+  </style></head><body>
+  <div class="card">
+  {% if state == 'cooldown' %}
+    <h1>access denied</h1>
+    <p>Access for <strong>{{ email }}</strong> was denied.</p>
+    <p>You can request again after <span class="mono">{{ retry_after[:16].replace('T',' ') }} UTC</span>.</p>
+  {% else %}
+    <h1>awaiting approval</h1>
+    <p>Access for <strong>{{ email }}</strong> has been requested.</p>
+    {% if notified %}
+      <p>The owner has been notified. Once approved, sign in again to continue.</p>
+    {% else %}
+      <p>Your request has been recorded. Once approved, sign in again to continue.</p>
+    {% endif %}
+    <p><a class="btn" href="/login">try sign-in again</a></p>
+  {% endif %}
+  </div>
+</body></html>

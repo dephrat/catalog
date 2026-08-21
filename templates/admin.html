@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Catalog — access</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg:#0f0f0f;--surface:#171717;--border:#2a2a2a;--accent:#c8f97a;
+          --text:#e8e8e8;--dim:#888;--mono:'DM Mono',monospace;--sans:'DM Sans',sans-serif}
+    body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh}
+    header{border-bottom:1px solid var(--border);padding:1.5rem 2.5rem;
+           display:flex;align-items:center;justify-content:space-between}
+    .logo{font-family:var(--mono);font-size:1.1rem;color:var(--accent)}
+    .logo span{color:var(--dim)}
+    .nav-tab{font-family:var(--mono);font-size:.75rem;padding:.4rem 1rem;border-radius:4px;
+             border:1px solid transparent;text-decoration:none;color:var(--dim)}
+    .nav-tab:hover{color:var(--text);border-color:var(--border)}
+    main{padding:2.5rem;max-width:900px}
+    h2{font-family:var(--mono);font-size:.7rem;color:var(--dim);letter-spacing:.08em;
+       text-transform:uppercase;margin-bottom:1rem}
+    .row{display:flex;align-items:center;gap:1rem;border:1px solid var(--border);
+         background:var(--surface);border-radius:6px;padding:.9rem 1.1rem;margin-bottom:.6rem}
+    .who{flex:1;min-width:0}
+    .name{font-size:.9rem}
+    .email{font-family:var(--mono);font-size:.72rem;color:var(--dim);
+           white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .status{font-family:var(--mono);font-size:.65rem;padding:.2rem .5rem;border-radius:3px;
+            background:#1e1e1e;border:1px solid var(--border);color:var(--dim)}
+    .status.approved{background:#1e2a0f;color:var(--accent);border-color:#3a5a1a}
+    .status.pending{background:#2a1a0a;color:#f0a040;border-color:#5a3a0a}
+    .status.denied{background:#2a1010;color:#f08080;border-color:#5a2020}
+    button{font-family:var(--mono);font-size:.72rem;padding:.35rem .8rem;border-radius:4px;
+           cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--text)}
+    button.ok:hover{border-color:var(--accent);color:var(--accent)}
+    button.bad:hover{border-color:#f08080;color:#f08080}
+    .empty{font-family:var(--mono);font-size:.8rem;color:var(--dim);padding:2rem 0}
+    .note{font-size:.78rem;color:var(--dim);margin-top:2rem;line-height:1.6}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">catalog<span>/access</span></div>
+    <a class="nav-tab" href="/">← back to search</a>
+  </header>
+  <main>
+    {% if usage %}
+      <h2>tagging usage</h2>
+      {% for user_id, u in usage.items() %}
+        <div class="row">
+          <div class="who">
+            <div class="name">{{ u.email }}</div>
+            <div class="email">
+              {{ "{:,}".format(u.input_tokens) }} in &middot;
+              {{ "{:,}".format(u.output_tokens) }} out &middot;
+              {{ u.requests }} requests
+              {%- if u.batched_requests %} ({{ u.batched_requests }} batched){% endif %}
+            </div>
+          </div>
+          {% if u.untagged %}
+            <span class="status pending">{{ u.untagged }} untagged</span>
+            <button type="button" class="ok" data-retag="1">retag</button>
+          {% endif %}
+          <span class="status">~${{ "%.2f"|format(u.cost) }}</span>
+        </div>
+      {% endfor %}
+      <p class="note">
+        Estimated from recorded token counts at Haiku list prices, with batched
+        requests billed at half. Anthropic&rsquo;s console is authoritative.
+      </p>
+    {% endif %}
+
+    <h2>catalog transfer</h2>
+    <div class="row">
+      <div class="who">
+        <div class="name">Import a catalog</div>
+        <div class="email">
+          Loads an exported catalog into <em>your</em> account, tags included —
+          no re-tagging, no cost.
+        </div>
+      </div>
+      <input type="file" id="import-file" accept=".json,.gz,application/json,application/gzip" style="display:none">
+      <button type="button" class="ok" id="import-btn">choose file…</button>
+      <a class="nav-tab" href="/export" style="border:1px solid var(--border)">export</a>
+    </div>
+    <p class="note" id="import-status"></p>
+
+    <h2>access requests</h2>
+    {% if not requests %}
+      <div class="empty">No requests yet.</div>
+    {% else %}
+      {% for r in requests %}
+        <div class="row" data-user-id="{{ r.user_id }}">
+          <div class="who">
+            <div class="name">{{ r.display_name or '(no name)' }}</div>
+            <div class="email">{{ r.email }}</div>
+          </div>
+          <span class="status {{ r.status }}">{{ r.status }}</span>
+          {% if r.status != 'approved' %}
+            <button type="button" class="ok" data-decision="approve">approve</button>
+          {% endif %}
+          {% if r.status == 'pending' %}
+            <button type="button" class="bad" data-decision="deny">deny</button>
+          {% elif r.status == 'approved' %}
+            <button type="button" class="bad" data-decision="revoke">revoke</button>
+          {% endif %}
+        </div>
+      {% endfor %}
+    {% endif %}
+    <p class="note">
+      Denying starts a {{ cooldown }}-minute cooldown before that account can request again.
+      Revoking an approved account takes effect on their next sign-in; any existing
+      session stays live until they sign out.
+    </p>
+  </main>
+
+  <script>
+    const importBtn = document.getElementById('import-btn');
+    const importFile = document.getElementById('import-file');
+    const importStatus = document.getElementById('import-status');
+
+    importBtn.addEventListener('click', () => importFile.click());
+    importFile.addEventListener('change', async () => {
+      const file = importFile.files[0];
+      if (!file) return;
+      const replace = confirm(
+        'Replace the existing catalog?\n\nOK = replace everything.\n' +
+        'Cancel = merge (imported threads win on conflict).'
+      );
+      importStatus.textContent = `importing ${file.name}…`;
+      try {
+        const resp = await fetch(`/import?replace=${replace ? 1 : 0}`, {
+          method: 'POST',
+          body: await file.arrayBuffer()   // bytes, so gzip survives
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          importStatus.textContent = `import failed: ${data.error || resp.status}`;
+          return;
+        }
+        importStatus.textContent =
+          `imported ${data.imported} threads — ${data.total} in this catalog now`;
+      } catch (err) {
+        importStatus.textContent = `import failed: ${err.message}`;
+      } finally {
+        importFile.value = '';
+      }
+    });
+
+    document.addEventListener('click', async (e) => {
+      const retag = e.target.closest('button[data-retag]');
+      if (retag) {
+        if (!confirm('Re-tag threads that have no tags? This costs tokens.')) return;
+        window.location.href = '/retag-empty';
+        return;
+      }
+
+      const btn = e.target.closest('button[data-decision]');
+      if (!btn) return;
+      const row = btn.closest('.row');
+      const decision = btn.dataset.decision;
+      const email = row.querySelector('.email').textContent.trim();
+      if (!confirm(`${decision} access for ${email}?`)) return;
+
+      const resp = await fetch('/admin/decide', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: row.dataset.userId, decision })
+      });
+      if (resp.status === 401) { window.location.href = '/login'; return; }
+      if (!resp.ok) { alert('Could not update access.'); return; }
+      window.location.reload();
+    });
+  </script>
+</body>
+</html>

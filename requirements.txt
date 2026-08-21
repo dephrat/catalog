@@ -1,0 +1,8 @@
+flask
+msal
+requests
+anthropic
+python-dotenv
+pypdf
+python-docx
+gunicorn
