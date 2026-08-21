@@ -1,5 +1,7 @@
 # Catalog
 
+[![ci](https://github.com/dephrat/catalog/actions/workflows/ci.yml/badge.svg)](https://github.com/dephrat/catalog/actions/workflows/ci.yml)
+
 Search your own email by whatever you actually remember about it.
 
 You rarely recall how a message was worded — you recall that it was *about the
@@ -138,6 +140,9 @@ python -m pytest
 
 182 tests, no network: the mail provider, the Anthropic client and the Graph
 transport are all stubbed, so the suite runs offline in about five seconds.
+CI runs the suite plus both secret scans (tracked files and full history) on
+every push — the pre-commit hook only protects clones that opted in via
+`core.hooksPath`, so the same gates run where nothing can skip them.
 
 Most of them encode a specific failure this project has already had — a
 re-sync wiping tags it had paid for, a partial batch marking the remainder

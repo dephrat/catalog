@@ -1,0 +1,42 @@
+# Two gates, both of which previously lived only in local tooling:
+#
+# - The tests. The working agreement says to gate pushes on them passing,
+#   which until now was enforced by intent alone.
+# - The secret scanner. Since the publish-by-regeneration script was retired,
+#   the pre-commit hook is the only thing between a mistake and a public
+#   commit — and the hook only runs in clones that have set core.hooksPath.
+#   This job is the copy of that gate no fresh clone or --no-verify can skip.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: the scanner's --history mode reads every blob in
+          # every commit, which a shallow clone doesn't have. The history is
+          # a handful of commits, so this costs nothing.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Tests
+        run: python -m pytest
+
+      - name: Secret scan, tracked files
+        run: python scripts/check_secrets.py --all
+
+      - name: Secret scan, full history
+        run: python scripts/check_secrets.py --history
