@@ -188,8 +188,6 @@ python scripts/check_secrets.py --history  # every blob in every commit
 python scripts/check_secrets.py --tree DIR --strict   # a publish candidate
 ```
 
-`scripts/new_clean_repo.sh` builds a publishable copy with no history, refusing
-to commit if anything is found.
 
 ## Limitations
 

@@ -33,5 +33,9 @@ venv/
 .claude/
 demo_catalog.db
 
+# Session-continuity notes. Not documentation, and it names the private
+# archive repo — this repo is public, so it stays on disk only.
+HANDOFF.md
+
 # OS
 .DS_Store
