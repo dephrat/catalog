@@ -118,7 +118,7 @@ class TestDecompressionBound:
         assert app._decompress_bounded(gzip.compress(payload), 10_000) == payload
 
     def test_a_bomb_is_refused_without_being_allocated(self):
-        bomb = gzip.compress(b"\0" * (50 * 1024 * 1024))
+        bomb = gzip.compress(b"\0" * (8 * 1024 * 1024))
         assert len(bomb) < 100_000, "the point is that it passes a compressed check"
         with pytest.raises(ValueError):
             app._decompress_bounded(bomb, 1024 * 1024)
@@ -183,17 +183,126 @@ class TestDemoGate:
                              addr, re.I) is None, addr
 
 
-class TestTagEditingLimits:
-    def test_tag_count_and_length_are_bounded(self):
-        assert app.MAX_USER_TAGS_PER_REQUEST > 0
-        assert app.MAX_TAG_LENGTH > 0
+class TestDemoModeRoutes:
+    """Hiding a control in the template is not the same as disabling it.
+    Anything that reaches for a mailbox, or destroys state the demo only
+    builds at startup, has to be refused at the route."""
 
-    def test_over_long_tags_are_truncated_on_write(self, user):
+    def _demo_client(self, monkeypatch):
+        import demo_seed
+        monkeypatch.setattr(app, "DEMO_MODE", True)
+        monkeypatch.setattr(app, "ADMIN_EMAILS", {demo_seed.DEMO_EMAIL})
+        app.app.config["TESTING"] = True
+        client = app.app.test_client()
+        with client.session_transaction() as sess:
+            sess["user_id"] = demo_seed.DEMO_USER_ID
+            sess["user_email"] = demo_seed.DEMO_EMAIL
+            sess["access_token"] = "demo"
+        return client
+
+    def test_wipe_is_refused(self, user, monkeypatch):
+        """It emptied the catalog with no way back short of a restart."""
+        client = self._demo_client(monkeypatch)
+        assert client.post("/wipe").status_code == 403
+
+    def test_resync_is_refused(self, user, monkeypatch):
+        client = self._demo_client(monkeypatch)
+        assert client.post("/resync").status_code == 409
+
+    def test_retag_is_refused(self, user, monkeypatch):
+        client = self._demo_client(monkeypatch)
+        assert client.get("/retag-empty").status_code == 400
+
+    def test_sync_is_a_no_op(self, user, monkeypatch):
+        client = self._demo_client(monkeypatch)
+        assert client.get("/sync").status_code == 302
+
+    def test_search_still_works(self, user, monkeypatch):
+        import demo_seed
+        db.upsert_thread(demo_seed.DEMO_USER_ID,
+                         make_thread("c1", ai_tags=["honda", "car"]))
+        client = self._demo_client(monkeypatch)
+        resp = client.get("/?q=honda")
+        assert resp.status_code == 200
+        assert b"honda" in resp.data
+
+
+class TestDetectiveWithoutAKey:
+    def test_a_missing_key_is_reported_rather_than_crashing(self, user, monkeypatch):
+        """With no key the SDK raises TypeError, which is neither an
+        APIStatusError nor an APIConnectionError — so it escaped the handlers
+        and handed the browser a traceback in place of JSON."""
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setattr(app, "ADMIN_EMAILS", {"admin@example.com"})
+        app.app.config["TESTING"] = True
+        client = app.app.test_client()
+        with client.session_transaction() as sess:
+            sess["user_id"] = user
+            sess["user_email"] = "admin@example.com"
+            sess["access_token"] = "t"
+
+        resp = client.post("/detective/ask",
+                           json={"messages": [{"role": "user", "content": "hi"}]})
+        assert resp.status_code == 503
+        assert "ANTHROPIC_API_KEY" in resp.get_json()["error"]
+
+    def test_an_unexpected_sdk_error_still_returns_json(self, user, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake")
+        monkeypatch.setattr(app, "ADMIN_EMAILS", {"admin@example.com"})
+
+        def explode(**kwargs):
+            raise TypeError("something the SDK did not document")
+
+        monkeypatch.setattr(app.anthropic_client.messages, "create", explode)
+        app.app.config["TESTING"] = True
+        client = app.app.test_client()
+        with client.session_transaction() as sess:
+            sess["user_id"] = user
+            sess["user_email"] = "admin@example.com"
+            sess["access_token"] = "t"
+
+        resp = client.post("/detective/ask",
+                           json={"messages": [{"role": "user", "content": "hi"}]})
+        assert resp.status_code == 500
+        assert resp.is_json, "the polling loop parses JSON; HTML kills it"
+
+
+class TestTagEditingLimits:
+    """Bounds live in the route, not the storage layer — db.edit_user_tags
+    writes whatever it is handed, so the route is what has to enforce them."""
+
+    def _client(self, user, monkeypatch):
+        monkeypatch.setattr(app, "ADMIN_EMAILS", {"admin@example.com"})
+        app.app.config["TESTING"] = True
+        client = app.app.test_client()
+        with client.session_transaction() as sess:
+            sess["user_id"] = user
+            sess["user_email"] = "admin@example.com"
+            sess["access_token"] = "t"
+        return client
+
+    def test_too_many_tags_in_one_request_are_refused(self, user, monkeypatch):
         db.upsert_thread(user, make_thread("c1"))
-        db.edit_user_tags(user, "c1", add=["x" * 500])
-        import json
-        stored = json.loads(db.search_threads(user)[0]["user_tags"])
-        assert stored == ["x" * 500], "db stores what it is given"
+        client = self._client(user, monkeypatch)
+        resp = client.post("/threads/c1/tags",
+                           json={"add": ["t"] * (app.MAX_USER_TAGS_PER_REQUEST + 1)})
+        assert resp.status_code == 400
+
+    def test_over_long_tags_are_truncated_by_the_route(self, user, monkeypatch):
+        db.upsert_thread(user, make_thread("c1"))
+        client = self._client(user, monkeypatch)
+        resp = client.post("/threads/c1/tags", json={"add": ["x" * 500]})
+        assert resp.status_code == 200
+        assert resp.get_json()["user_tags"] == ["x" * app.MAX_TAG_LENGTH]
+
+    def test_non_list_input_is_refused(self, user, monkeypatch):
+        db.upsert_thread(user, make_thread("c1"))
+        client = self._client(user, monkeypatch)
+        assert client.post("/threads/c1/tags", json={"add": "not a list"}).status_code == 400
+
+    def test_an_unknown_thread_is_a_404(self, user, monkeypatch):
+        client = self._client(user, monkeypatch)
+        assert client.post("/threads/nope/tags", json={"add": ["x"]}).status_code == 404
 
 
 class TestPromptCaching:

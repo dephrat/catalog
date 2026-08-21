@@ -1447,6 +1447,11 @@ def stop_sync():
 @app.route("/wipe", methods=["POST"])
 @login_required
 def wipe():
+    if DEMO_MODE:
+        # The demo catalog is only seeded at startup, so wiping it would leave
+        # an empty app with no way back short of a restart. The button is
+        # hidden, but hiding a control is not the same as disabling it.
+        return jsonify({"error": "wipe is disabled in demo mode"}), 403
     # Also drops this user's delta tokens, so the next sync rebuilds from
     # scratch rather than reporting "nothing changed" against an empty catalog.
     db.wipe_db(current_user_id())
@@ -1740,6 +1745,13 @@ def detective_ask():
             "cache_control": {"type": "ephemeral"},
         }]
 
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        # Without a key the client raises TypeError from inside the SDK, which
+        # is neither an APIStatusError nor an APIConnectionError — so this used
+        # to escape as a 500 with a traceback. Say what is actually wrong.
+        return jsonify({"error": "No ANTHROPIC_API_KEY is configured, so "
+                                 "Detective cannot run. Search still works."}), 503
+
     try:
         response = anthropic_client.messages.create(**kwargs)
     except anthropic.APIStatusError as e:
@@ -1748,6 +1760,11 @@ def detective_ask():
     except anthropic.APIConnectionError as e:
         print(f"Detective connection error: {e}")
         return jsonify({"error": "could not reach the model"}), 503
+    except Exception as e:
+        # Last resort: a misconfiguration should not hand the browser a
+        # traceback in place of the JSON its polling loop expects.
+        print(f"Detective unexpected error: {type(e).__name__}: {e}")
+        return jsonify({"error": "the model request could not be made"}), 500
 
     text = next((b.text for b in response.content if b.type == "text"), "")
     return jsonify({
