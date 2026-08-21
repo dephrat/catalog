@@ -106,6 +106,9 @@ mail around all of it — then serves the real app against it. Search and every
 filter are fully live; try `honda car loan`, `water heater invoice`, or
 `annika midsummer`. Detective works too if `ANTHROPIC_API_KEY` is set.
 
+Then open http://127.0.0.1:5000. On macOS that port is usually taken by
+AirPlay Receiver, so `PORT=5001 python app.py --demo` if it refuses to bind.
+
 Demo mode cannot be reached in a deployment: it requires being executed as a
 script with the flag, and gunicorn rejects unknown arguments, so a worker
 cannot start with `--demo` and no environment variable can switch it on. It

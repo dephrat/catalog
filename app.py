@@ -1806,4 +1806,11 @@ recover_after_restart()
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=bool(os.getenv("FLASK_DEBUG")))
+    # PORT is overridable because macOS ships AirPlay Receiver bound to 5000,
+    # so the default fails to bind on a stock Mac — which is the first thing a
+    # new clone runs.
+    app.run(
+        host="127.0.0.1",
+        port=int(os.getenv("PORT", "5000")),
+        debug=bool(os.getenv("FLASK_DEBUG")),
+    )
