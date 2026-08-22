@@ -164,6 +164,12 @@ from emailed links that are HMAC-signed with an expiry and apply on POST rather
 than GET, because mail scanners prefetch links and would otherwise approve
 every request that reached an inbox.
 
+The sign-in itself carries a random `state` through the OAuth round trip,
+checked on return and spent once. Without it an attacker can hand a victim a
+callback URL carrying the attacker's authorisation code, and the victim ends
+up holding a session bound to someone else's mailbox — indexing it on the
+operator's key.
+
 ## Operational notes
 
 A few things this handles because they actually happened:

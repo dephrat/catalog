@@ -13,12 +13,13 @@ AUTHORITY = "https://login.microsoftonline.com/consumers"
 SCOPES = ["Mail.Read", "User.Read"]
 REDIRECT_URI = os.getenv("REDIRECT_URI", "http://localhost:5000/callback")
 
-def get_auth_url():
+def get_auth_url(state=None):
     app = _build_msal_app()
     return app.get_authorization_request_url(
         SCOPES,
         redirect_uri=REDIRECT_URI,
-        prompt="select_account"
+        prompt="select_account",
+        state=state
     )
 
 def get_token_from_code(code):

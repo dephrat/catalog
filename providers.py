@@ -39,7 +39,9 @@ class MailProvider:
     label = "unset"
 
     # ── Authentication ────────────────────────────────────────────────────
-    def auth_url(self):
+    def auth_url(self, state=None):
+        """`state` is echoed back to the callback unmodified, and is how the
+        callback tells its own redirect from one an attacker induced."""
         raise NotImplementedError
 
     def token_from_code(self, code):
@@ -87,8 +89,8 @@ class MicrosoftProvider(MailProvider):
     name = "microsoft"
     label = "Microsoft / Outlook"
 
-    def auth_url(self):
-        return ms_auth.get_auth_url()
+    def auth_url(self, state=None):
+        return ms_auth.get_auth_url(state=state)
 
     def token_from_code(self, code):
         token, cache = ms_auth.get_token_from_code(code)

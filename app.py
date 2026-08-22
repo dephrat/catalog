@@ -14,6 +14,7 @@ import json
 import threading
 import time
 import re
+import secrets
 import hmac
 import hashlib
 import base64
@@ -45,8 +46,13 @@ except AttributeError:  # pragma: no cover - very old interpreters
 # start with --demo, and an env-var typo on the dashboard cannot enable it.
 DEMO_MODE = __name__ == "__main__" and "--demo" in sys.argv
 
+# Imported unconditionally: it is pure data with no side effects, and
+# importing it only under the flag left app.login referencing a name that
+# does not exist whenever DEMO_MODE is set after import — which is what any
+# test of the bypass has to do.
+import demo_seed
+
 if DEMO_MODE:
-    import demo_seed
     # Never the real catalog, whatever DB_PATH says. The demo database is
     # disposable by design; *.db is gitignored so it also cannot commit.
     db.DB_PATH = "demo_catalog.db"
@@ -57,8 +63,7 @@ if not app.secret_key:
     if DEMO_MODE:
         # Ephemeral: demo sessions may die on restart, but a cloner without a
         # .env gets a working app instead of an error about one.
-        import secrets as _secrets
-        app.secret_key = _secrets.token_urlsafe(32)
+        app.secret_key = secrets.token_urlsafe(32)
     else:
         raise RuntimeError("SECRET_KEY is not set — sessions would be insecure. Set it in .env.")
 
@@ -1261,7 +1266,16 @@ def login():
     provider = providers.get(request.args.get("provider"))
     # /callback has no way to know which provider issued the code, so record it.
     session["pending_provider"] = provider.name
-    return redirect(provider.auth_url())
+
+    # CSRF defence for the login itself. Without it, an attacker can send a
+    # victim to /callback carrying the attacker's authorisation code, and the
+    # victim's browser silently ends up holding a session bound to the
+    # attacker's mailbox — every thread they then index, and every tag the
+    # API key pays for, lands in someone else's catalog. The state is random,
+    # kept in the signed session cookie, and echoed back by the provider.
+    state = secrets.token_urlsafe(32)
+    session["oauth_state"] = state
+    return redirect(provider.auth_url(state=state))
 
 
 @app.route("/callback")
@@ -1269,6 +1283,18 @@ def callback():
     code = request.args.get("code")
     if not code:
         return "Auth failed — no code returned.", 400
+
+    # Single-use: pop before comparing, so a replayed callback finds nothing
+    # to match against even if the value leaked. compare_digest because this
+    # is a secret being checked against attacker-supplied input.
+    expected = session.pop("oauth_state", None)
+    returned = request.args.get("state", "")
+    if not expected or not hmac.compare_digest(expected, returned):
+        # No session established, so a forged callback leaves nothing behind.
+        session.pop("pending_provider", None)
+        return ("Auth failed — this sign-in did not start here. "
+                "Please sign in again from the app."), 400
+
     try:
         provider = providers.get(session.get("pending_provider"))
         access_token, token_cache = provider.token_from_code(code)

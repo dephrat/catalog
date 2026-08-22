@@ -12,6 +12,7 @@ import pytest
 
 import app
 import db
+import providers
 from conftest import make_thread
 
 
@@ -183,6 +184,108 @@ class TestDemoGate:
                              addr, re.I) is None, addr
 
 
+class TestOAuthState:
+    """Login CSRF. Without a state parameter, an attacker can send a victim
+    to /callback carrying the attacker's authorisation code; the victim's
+    browser ends up holding a session bound to the attacker's mailbox, and
+    every thread it indexes — on the operator's API key — lands in someone
+    else's catalog."""
+
+    def _client(self, monkeypatch):
+        monkeypatch.setattr(app, "DEMO_MODE", False)
+        app.app.config["TESTING"] = True
+        return app.app.test_client()
+
+    class _FakeProvider:
+        name = "microsoft"
+        label = "Fake"
+        seen_state = None
+
+        def auth_url(self, state=None):
+            type(self).seen_state = state
+            return f"https://login.example/authorize?state={state}"
+
+        def token_from_code(self, code):
+            return "access-token", "cache"
+
+        def get_identity(self, access_token):
+            return {"id": "u-attacker", "email": "a@example.com",
+                    "display_name": "A"}
+
+    def test_login_issues_a_state_and_passes_it_to_the_provider(self, user, monkeypatch):
+        fake = self._FakeProvider()
+        monkeypatch.setattr(providers, "get", lambda name=None: fake)
+        client = self._client(monkeypatch)
+
+        resp = client.get("/login")
+        assert resp.status_code == 302
+        with client.session_transaction() as sess:
+            stored = sess["oauth_state"]
+        assert stored, "no state was issued"
+        assert fake.seen_state == stored, "the provider must receive the same value"
+        assert stored in resp.headers["Location"]
+
+    def test_state_is_unpredictable(self, user, monkeypatch):
+        monkeypatch.setattr(providers, "get", lambda name=None: self._FakeProvider())
+        seen = set()
+        for _ in range(5):
+            client = self._client(monkeypatch)
+            client.get("/login")
+            with client.session_transaction() as sess:
+                seen.add(sess["oauth_state"])
+        assert len(seen) == 5
+        assert all(len(v) >= 32 for v in seen)
+
+    def test_a_callback_with_no_state_is_refused(self, user, monkeypatch):
+        client = self._client(monkeypatch)
+        resp = client.get("/callback?code=attacker-code")
+        assert resp.status_code == 400
+        with client.session_transaction() as sess:
+            assert "user_id" not in sess, "a forged callback must establish nothing"
+
+    def test_a_callback_with_the_wrong_state_is_refused(self, user, monkeypatch):
+        monkeypatch.setattr(providers, "get", lambda name=None: self._FakeProvider())
+        client = self._client(monkeypatch)
+        client.get("/login")            # a real state is now in the session
+        resp = client.get("/callback?code=attacker-code&state=guessed")
+        assert resp.status_code == 400
+        with client.session_transaction() as sess:
+            assert "user_id" not in sess
+
+    def test_the_matching_state_is_accepted(self, user, monkeypatch):
+        monkeypatch.setattr(providers, "get", lambda name=None: self._FakeProvider())
+        monkeypatch.setattr(app, "ADMIN_EMAILS", {"a@example.com"})
+        client = self._client(monkeypatch)
+        client.get("/login")
+        with client.session_transaction() as sess:
+            state = sess["oauth_state"]
+
+        resp = client.get(f"/callback?code=real-code&state={state}")
+        assert resp.status_code == 302, "the legitimate flow must still work"
+        with client.session_transaction() as sess:
+            assert sess["user_id"] == "u-attacker"
+
+    def test_a_state_cannot_be_replayed(self, user, monkeypatch):
+        """Popped rather than read, so a leaked value is spent once."""
+        monkeypatch.setattr(providers, "get", lambda name=None: self._FakeProvider())
+        monkeypatch.setattr(app, "ADMIN_EMAILS", {"a@example.com"})
+        client = self._client(monkeypatch)
+        client.get("/login")
+        with client.session_transaction() as sess:
+            state = sess["oauth_state"]
+
+        assert client.get(f"/callback?code=c&state={state}").status_code == 302
+        assert client.get(f"/callback?code=c&state={state}").status_code == 400
+
+    def test_the_pending_provider_is_cleared_on_rejection(self, user, monkeypatch):
+        monkeypatch.setattr(providers, "get", lambda name=None: self._FakeProvider())
+        client = self._client(monkeypatch)
+        client.get("/login")
+        client.get("/callback?code=attacker-code&state=wrong")
+        with client.session_transaction() as sess:
+            assert "pending_provider" not in sess
+
+
 class TestDemoModeRoutes:
     """Hiding a control in the template is not the same as disabling it.
     Anything that reaches for a mailbox, or destroys state the demo only
@@ -216,6 +319,20 @@ class TestDemoModeRoutes:
     def test_sync_is_a_no_op(self, user, monkeypatch):
         client = self._demo_client(monkeypatch)
         assert client.get("/sync").status_code == 302
+
+    def test_the_login_bypass_establishes_the_demo_session(self, user, monkeypatch):
+        """The bypass was never exercised: demo_seed was imported only under
+        the flag, so app.login referenced an undefined name in any test that
+        set DEMO_MODE after import."""
+        import demo_seed
+        client = self._demo_client(monkeypatch)
+        with client.session_transaction() as sess:
+            sess.clear()
+        resp = client.get("/login")
+        assert resp.status_code == 302
+        with client.session_transaction() as sess:
+            assert sess["user_id"] == demo_seed.DEMO_USER_ID
+            assert "oauth_state" not in sess, "the bypass skips OAuth entirely"
 
     def test_search_still_works(self, user, monkeypatch):
         import demo_seed
