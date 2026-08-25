@@ -1427,6 +1427,23 @@ def admin_decide():
     return jsonify({"ok": True, "status": status})
 
 
+@app.route("/healthz")
+def healthz():
+    """Unauthenticated liveness and version check.
+
+    Answering "is my change actually deployed?" needed a behaviour visible
+    without signing in, which meant guessing from whatever the last commit
+    happened to alter. Render exposes the deployed commit; this reports it.
+    Nothing here is secret — the repository is public and the SHA identifies
+    a commit anyone can already read.
+    """
+    return jsonify({
+        "ok": True,
+        "commit": (os.getenv("RENDER_GIT_COMMIT") or "unknown")[:7],
+        "demo": DEMO_MODE,
+    })
+
+
 @app.route("/logout")
 def logout():
     session.clear()

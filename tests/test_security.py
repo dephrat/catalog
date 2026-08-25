@@ -184,6 +184,29 @@ class TestDemoGate:
                              addr, re.I) is None, addr
 
 
+class TestHealthz:
+    def test_reports_liveness_and_commit_without_auth(self, user, monkeypatch):
+        monkeypatch.setenv("RENDER_GIT_COMMIT", "abcdef1234567890")
+        app.app.config["TESTING"] = True
+        resp = app.app.test_client().get("/healthz")
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["ok"] is True
+        assert body["commit"] == "abcdef1"
+
+    def test_says_unknown_off_render(self, user, monkeypatch):
+        monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
+        app.app.config["TESTING"] = True
+        assert app.app.test_client().get("/healthz").get_json()["commit"] == "unknown"
+
+    def test_leaks_no_configuration(self, user, monkeypatch):
+        """A public endpoint must not become a config dump."""
+        monkeypatch.setenv("RENDER_GIT_COMMIT", "abcdef1")
+        app.app.config["TESTING"] = True
+        body = app.app.test_client().get("/healthz").get_json()
+        assert set(body) == {"ok", "commit", "demo"}
+
+
 class TestAdminRetagIsReachable:
     """The retag control used to live inside the tagging-usage loop, so it
     rendered only for accounts that had recorded token spend. usage_log was
