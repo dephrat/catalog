@@ -886,6 +886,33 @@ def untagged_by_user():
             for r in rows}
 
 
+def usage_since(user_id, day):
+    """Token totals for one user from `day` (inclusive), split by batching.
+
+    Days are ISO strings and compare lexicographically, which is the whole
+    reason the column stores them that way.
+    """
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT batched, SUM(requests) requests, SUM(input_tokens) input_tokens, "
+            "       SUM(output_tokens) output_tokens "
+            "  FROM usage_log WHERE user_id=? AND day>=? GROUP BY batched",
+            (user_id, day)
+        ).fetchall()
+        out = {"requests": 0, "input_tokens": 0, "output_tokens": 0,
+               "batched_requests": 0}
+        for r in rows:
+            out["requests"] += r["requests"] or 0
+            out["input_tokens"] += r["input_tokens"] or 0
+            out["output_tokens"] += r["output_tokens"] or 0
+            if r["batched"]:
+                out["batched_requests"] += r["requests"] or 0
+        return out
+    finally:
+        conn.close()
+
+
 def count_untagged(user_id):
     conn = get_db()
     n = conn.execute(

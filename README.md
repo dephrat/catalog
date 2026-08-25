@@ -138,8 +138,8 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-182 tests, no network: the mail provider, the Anthropic client and the Graph
-transport are all stubbed, so the suite runs offline in about five seconds.
+258 tests, no network: the mail provider, the Anthropic client and the Graph
+transport are all stubbed, so the suite runs offline in about fifteen seconds.
 CI runs the suite plus both secret scans (tracked files and full history) on
 every push — the pre-commit hook only protects clones that opted in via
 `core.hooksPath`, so the same gates run where nothing can skip them.
@@ -153,6 +153,23 @@ suite works.
 
 The sync tests drive `run_sync` through the provider interface rather than
 through Graph, so a second provider inherits them.
+
+## Spending
+
+Tagging and Detective cost money, and it is the operator's money regardless of
+whose mailbox is being indexed. Approval is binary — it says who may sign in,
+not how much they may spend.
+
+`USER_SPEND_LIMIT_USD` caps each account's spend for the calendar month.
+Reaching it pauses syncing and Detective for that account; search keeps working
+on everything already indexed. Admins are exempt, since the limit exists to
+bound guests rather than to interrupt the person paying. Unset means no limit,
+which is the right default for a single-operator instance and the wrong one the
+moment anybody else is approved.
+
+Measured figures, so the number can be chosen rather than guessed: an
+11.6k-thread mailbox costs about **$6.65** to tag through the Batch API, or
+**$14.31** in real time; a Detective session runs **$0.10–0.30**.
 
 ## Backups
 

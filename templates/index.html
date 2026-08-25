@@ -450,6 +450,14 @@
   </div>
 </header>
 
+{% if request.args.get('spend_limited') %}
+<div style="margin:0 0 1rem;padding:0.6rem 1rem;border:1px solid #7a4a2a;background:#241a10;
+            font-family:var(--mono);font-size:0.72rem;color:#d6a45a;">
+  This account has reached its monthly spend limit, so syncing is paused.
+  Search still works on everything already indexed. The limit resets on the
+  first of the month.
+</div>
+{% endif %}
 {% if demo_mode %}
 <div style="margin:0 0 1rem;padding:0.6rem 1rem;border:1px solid #4a5a2a;background:#181e10;
             font-family:var(--mono);font-size:0.72rem;color:#9db36a;">

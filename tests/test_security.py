@@ -442,6 +442,105 @@ class TestDetectiveBounds:
         assert resp.status_code == 400
 
 
+class TestSpendLimit:
+    """An approved account can cost the operator real money: a large mailbox
+    is ~$6.65 to tag, and Detective bills per round. Approval is binary and
+    says nothing about how much someone may spend."""
+
+    def _client(self, user, monkeypatch, email="guest@example.com"):
+        monkeypatch.setattr(app, "DEMO_MODE", False)
+        monkeypatch.setattr(app, "ADMIN_EMAILS", {"admin@example.com"})
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake")
+        app.app.config["TESTING"] = True
+        client = app.app.test_client()
+        with client.session_transaction() as sess:
+            sess["user_id"] = user
+            sess["user_email"] = email
+        return client
+
+    def _spend(self, user, dollars):
+        """Record enough input tokens to reach roughly `dollars`."""
+        db.upsert_user(user, "guest@example.com", "Guest", "2024-01-01T00:00:00Z")
+        tokens = int(dollars * 1e6 / app.PRICE_IN_PER_MTOK)
+        db.record_usage(user, tokens, 0, 0, False, app.month_start())
+
+    def test_unset_by_default_so_a_solo_instance_is_unaffected(self, user, monkeypatch):
+        monkeypatch.setattr(app, "USER_SPEND_LIMIT_USD", None)
+        self._spend(user, 500)
+        assert app.USER_SPEND_LIMIT_USD is None
+        with app.app.test_request_context("/"):
+            assert app.over_spend_limit(user)[0] is False
+
+    def test_detective_is_refused_over_the_limit(self, user, monkeypatch):
+        monkeypatch.setattr(app, "USER_SPEND_LIMIT_USD", 5.0)
+        self._spend(user, 6)
+        client = self._client(user, monkeypatch)
+        resp = client.post("/detective/ask",
+                           json={"messages": [{"role": "user", "content": "hi"}]})
+        assert resp.status_code == 402
+        assert "monthly limit" in resp.get_json()["error"]
+
+    def test_detective_runs_under_the_limit(self, user, monkeypatch):
+        monkeypatch.setattr(app, "USER_SPEND_LIMIT_USD", 100.0)
+        self._spend(user, 1)
+        client = self._client(user, monkeypatch)
+
+        def fake_create(**kwargs):
+            class R:
+                content = [type("B", (), {"type": "text", "text": "ok"})()]
+                usage = type("U", (), {"cache_read_input_tokens": 0,
+                                       "cache_creation_input_tokens": 0,
+                                       "input_tokens": 1, "output_tokens": 1})()
+            return R()
+
+        monkeypatch.setattr(app.anthropic_client.messages, "create", fake_create)
+        resp = client.post("/detective/ask",
+                           json={"messages": [{"role": "user", "content": "hi"}]})
+        assert resp.status_code == 200
+
+    def test_sync_is_refused_over_the_limit(self, user, monkeypatch):
+        monkeypatch.setattr(app, "USER_SPEND_LIMIT_USD", 5.0)
+        self._spend(user, 6)
+        client = self._client(user, monkeypatch)
+        resp = client.get("/sync")
+        assert resp.status_code == 302
+        assert "spend_limited" in resp.headers["Location"]
+        assert app.is_running(app.sync_running, user) is False, "no job may start"
+
+    def test_the_admin_is_exempt(self, user, monkeypatch):
+        """The limit protects the operator from guests, not from themselves."""
+        monkeypatch.setattr(app, "USER_SPEND_LIMIT_USD", 5.0)
+        self._spend(user, 500)
+        self._client(user, monkeypatch, email="admin@example.com")
+        with app.app.test_request_context("/"):
+            from flask import session as flask_session
+            flask_session["user_email"] = "admin@example.com"
+            assert app.over_spend_limit(user)[0] is False
+
+    def test_only_this_month_counts(self, user, monkeypatch):
+        """Last month's spend must not permanently lock an account out."""
+        monkeypatch.setattr(app, "USER_SPEND_LIMIT_USD", 5.0)
+        db.upsert_user(user, "guest@example.com", "Guest", "2024-01-01T00:00:00Z")
+        db.record_usage(user, int(50 * 1e6), 0, 0, False, "2020-01-01")
+        with app.app.test_request_context("/"):
+            assert app.over_spend_limit(user)[0] is False
+
+    def test_spend_is_scoped_to_the_account(self, user, monkeypatch):
+        monkeypatch.setattr(app, "USER_SPEND_LIMIT_USD", 5.0)
+        self._spend("someone-else", 500)
+        with app.app.test_request_context("/"):
+            assert app.over_spend_limit(user)[0] is False
+
+    def test_a_malformed_limit_is_ignored_rather_than_crashing(self, monkeypatch):
+        """A typo in the dashboard must not take the app down at import."""
+        import importlib
+        monkeypatch.setenv("USER_SPEND_LIMIT_USD", "twenty dollars")
+        importlib.reload(app)
+        assert app.USER_SPEND_LIMIT_USD is None
+        monkeypatch.delenv("USER_SPEND_LIMIT_USD")
+        importlib.reload(app)
+
+
 class TestOAuthState:
     """Login CSRF. Without a state parameter, an attacker can send a victim
     to /callback carrying the attacker's authorisation code; the victim's

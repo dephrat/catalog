@@ -117,6 +117,8 @@ def log_startup_config():
     print(f"  tag model          : {tagger.TAG_MODEL}")
     print(f"  batch size         : {BATCH_SIZE} threads/request")
     print(f"  batch API above    : {BATCH_API_THRESHOLD} threads")
+    print(f"  per-user spend cap : "
+          f"{('$%.2f/month' % USER_SPEND_LIMIT_USD) if USER_SPEND_LIMIT_USD else 'none'}")
     print(f"  batch max wait     : {BATCH_MAX_WAIT_SECONDS}s")
     print(f"  server threads     : {_t.active_count()} active "
           f"(gunicorn worker class is logged separately above)")
@@ -1407,6 +1409,19 @@ def access_decide_apply(token):
 PRICE_IN_PER_MTOK = 1.0
 PRICE_OUT_PER_MTOK = 5.0
 
+# Per-account spend ceiling for the current calendar month, in dollars.
+# Unset means no limit, which is the right default for a single-operator
+# instance — the person paying is the person spending. Set it before letting
+# anyone else in: an approved account can otherwise cost the operator ~$6.65
+# by syncing a large mailbox, repeatedly, with nothing but the shared
+# workspace cap in the way.
+_limit = (os.getenv("USER_SPEND_LIMIT_USD") or "").strip()
+try:
+    USER_SPEND_LIMIT_USD = float(_limit) if _limit else None
+except ValueError:
+    print(f"USER_SPEND_LIMIT_USD is not a number ({_limit!r}); treating as unset.")
+    USER_SPEND_LIMIT_USD = None
+
 
 def estimate_cost(stats):
     """Rough spend for a user's tagging. Batch requests bill at 50%."""
@@ -1416,6 +1431,25 @@ def estimate_cost(stats):
         stats["input_tokens"] / 1e6 * PRICE_IN_PER_MTOK
         + stats["output_tokens"] / 1e6 * PRICE_OUT_PER_MTOK
     ) * discount
+
+
+def month_start():
+    return datetime.now(timezone.utc).strftime("%Y-%m-01")
+
+
+def spend_this_month(user_id):
+    return estimate_cost(db.usage_since(user_id, month_start()))
+
+
+def over_spend_limit(user_id):
+    """(exceeded, spent, limit). Admins are exempt: the limit exists to stop
+    an approved guest spending the operator's money, and the operator
+    stopping their own work mid-sync helps nobody."""
+    limit = USER_SPEND_LIMIT_USD
+    if limit is None or is_admin(session.get("user_email")):
+        return False, 0.0, limit
+    spent = spend_this_month(user_id)
+    return spent >= limit, spent, limit
 
 
 @app.route("/admin")
@@ -1500,6 +1534,11 @@ def sync():
             return redirect(url_for("index"))
         print(f"Previous sync for {user_id} looks dead; starting a new one")
         set_running(sync_running, user_id, False)
+
+    exceeded, spent, limit = over_spend_limit(user_id)
+    if exceeded:
+        print(f"[spend] refusing sync for {user_id}: ${spent:.2f} of ${limit:.2f}")
+        return redirect(url_for("index", spend_limited="1"))
 
     set_running(sync_running, user_id, True)
     t = threading.Thread(
@@ -1836,6 +1875,12 @@ def detective_ask():
             "text": system_prompt,
             "cache_control": {"type": "ephemeral"},
         }]
+
+    exceeded, spent, limit = over_spend_limit(current_user_id())
+    if exceeded:
+        return jsonify({"error": f"This account has reached its ${limit:.2f} "
+                                 f"monthly limit (${spent:.2f} used). It resets "
+                                 f"on the first of next month."}), 402
 
     if not os.getenv("ANTHROPIC_API_KEY"):
         # Without a key the client raises TypeError from inside the SDK, which
