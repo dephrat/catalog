@@ -154,6 +154,25 @@ suite works.
 The sync tests drive `run_sync` through the provider interface rather than
 through Graph, so a second provider inherits them.
 
+## Backups
+
+```bash
+python backup.py                  # take one, keeping the last 7
+python backup.py --list
+python backup.py --restore catalog-backup-….db.gz --yes
+```
+
+Snapshots use SQLite's online backup API rather than a file copy, because
+`cp` on a live database can capture a write in progress and produce a file
+that only fails when you finally need it. Each one is opened, integrity
+checked and row-counted before it is kept — an unverified backup is a guess.
+The 11k-thread catalog compresses to about 3 MB.
+
+A restore keeps the database it replaces, so restoring the wrong snapshot is
+itself recoverable. Snapshots land beside the database by default, which
+covers a bad import or a wipe; pass `--dir`, or copy them elsewhere, to cover
+losing the disk.
+
 ## Access control
 
 Catalog is multi-tenant — each signed-in account gets an isolated catalog — so a
