@@ -182,16 +182,74 @@ def get_user_by_email(email):
     return dict(row) if row else None
 
 
-def claim_legacy_threads(user_id):
-    """Reassign pre-migration threads to a real user. Returns rows moved."""
+def legacy_summary():
+    """What is parked under the legacy placeholder, for review before claiming."""
     conn = get_db()
-    cur = conn.execute(
-        "UPDATE threads SET user_id=? WHERE user_id=?", (user_id, LEGACY_USER_ID)
-    )
-    conn.commit()
-    moved = cur.rowcount
-    conn.close()
-    return moved
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) n, MIN(date_first) oldest, MAX(date_last) newest "
+            "FROM threads WHERE user_id=?", (LEGACY_USER_ID,)
+        ).fetchone()
+        sample = conn.execute(
+            "SELECT subject, participants, date_first FROM threads "
+            "WHERE user_id=? ORDER BY date_first LIMIT ?", (LEGACY_USER_ID, 8)
+        ).fetchall()
+        return {"count": row["n"], "oldest": row["oldest"], "newest": row["newest"],
+                "sample": [dict(r) for r in sample]}
+    finally:
+        conn.close()
+
+
+def legacy_collisions(user_id):
+    """Legacy thread_ids the target account already holds.
+
+    The primary key is (user_id, thread_id), so moving one of these violates
+    it — and a single collision aborts the whole UPDATE, leaving nothing
+    moved. They are expected rather than exceptional: legacy rows predate
+    per-user catalogs, and the account has re-synced the same mail since.
+    """
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT l.thread_id FROM threads l "
+            "  JOIN threads t ON t.thread_id = l.thread_id AND t.user_id = ? "
+            " WHERE l.user_id = ?", (user_id, LEGACY_USER_ID)
+        ).fetchall()
+        return {r["thread_id"] for r in rows}
+    finally:
+        conn.close()
+
+
+def claim_legacy_threads(user_id, drop_duplicates=False):
+    """Adopt pre-migration threads into a real account.
+
+    Rows the account already holds are left alone rather than moved, because
+    its own copy came from a later sync and is the fresher one. Returns
+    (moved, duplicates) so the caller can report both.
+    """
+    collisions = legacy_collisions(user_id)
+    conn = get_db()
+    try:
+        if collisions:
+            placeholders = ",".join("?" * len(collisions))
+            if drop_duplicates:
+                conn.execute(
+                    f"DELETE FROM threads WHERE user_id=? "
+                    f"AND thread_id IN ({placeholders})",
+                    [LEGACY_USER_ID, *collisions])
+            cur = conn.execute(
+                f"UPDATE threads SET user_id=? WHERE user_id=? "
+                f"AND thread_id NOT IN ({placeholders})",
+                [user_id, LEGACY_USER_ID, *collisions])
+        else:
+            cur = conn.execute(
+                "UPDATE threads SET user_id=? WHERE user_id=?",
+                (user_id, LEGACY_USER_ID))
+        moved = cur.rowcount
+        conn.commit()
+        return moved, len(collisions)
+    finally:
+        conn.close()
 
 
 # ── Threads ───────────────────────────────────────────────────────────────────
