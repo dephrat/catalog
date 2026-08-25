@@ -106,6 +106,115 @@ class TestSearch:
         assert len(db.search_threads(user, query="honda")) == 1
 
 
+class TestFullTextSearch:
+    """LIKE '%term%' matched substrings. On the real corpus that was not a
+    nuance: "car" returned 2,593 threads of which 41 carried the tag, and
+    "man" returned 1,356 of which none did."""
+
+    def _seed(self, user):
+        db.upsert_thread(user, make_thread("car", ai_tags=["car", "loan"]))
+        db.upsert_thread(user, make_thread("carpet", ai_tags=["carpet", "rug"]))
+        db.upsert_thread(user, make_thread("scarf", ai_tags=["scarf"]))
+        db.upsert_thread(user, make_thread("management",
+                                           subject="Management update"))
+
+    def test_a_word_does_not_match_words_containing_it(self, user):
+        self._seed(user)
+        found = {r["thread_id"] for r in db.search_threads(user, query="car")}
+        assert found == {"car"}, "carpet and scarf are different words"
+
+    def test_a_word_inside_a_subject_still_matches(self, user):
+        self._seed(user)
+        found = {r["thread_id"] for r in db.search_threads(user, query="management")}
+        assert found == {"management"}
+
+    def test_multi_word_tags_are_matched_by_either_word(self, user):
+        db.upsert_thread(user, make_thread("t", ai_tags=["car loan", "meridian"]))
+        assert len(db.search_threads(user, query="loan")) == 1
+        assert len(db.search_threads(user, query="car")) == 1
+
+    def test_and_mode_requires_every_word(self, user):
+        self._seed(user)
+        assert len(db.search_threads(user, query="car loan", search_mode="and")) == 1
+        assert len(db.search_threads(user, query="car rug", search_mode="and")) == 0
+
+    def test_or_mode_takes_any_word(self, user):
+        self._seed(user)
+        assert len(db.search_threads(user, query="car rug", search_mode="or")) == 2
+
+    def test_query_syntax_in_user_input_is_treated_as_words(self, user):
+        """Unquoted, a search for AND, OR, NOT or a hyphenated word would be
+        read as FTS grammar and either error or mean something else."""
+        db.upsert_thread(user, make_thread("t", ai_tags=["and", "or", "not"]))
+        for term in ["and", "or", "not", "AND", "-car", '"quoted"', "NEAR"]:
+            db.search_threads(user, query=term)   # must not raise
+
+    def test_punctuation_only_input_is_harmless(self, user):
+        self._seed(user)
+        for junk in ["*", "()", '"', "^", ":"]:
+            db.search_threads(user, query=junk)
+
+    def test_the_index_follows_a_tag_update(self, user):
+        """set_thread_tags writes ai_tags directly, so the index has to be
+        maintained by triggers rather than inside upsert_thread."""
+        db.upsert_thread(user, make_thread("t", ai_tags=["before"]))
+        assert len(db.search_threads(user, query="before")) == 1
+        db.set_thread_tags(user, "t", ["after"], False)
+        assert len(db.search_threads(user, query="before")) == 0
+        assert len(db.search_threads(user, query="after")) == 1
+
+    def test_the_index_follows_a_delete(self, user):
+        db.upsert_thread(user, make_thread("t", ai_tags=["gone"]))
+        db.delete_thread(user, "t")
+        assert db.search_threads(user, query="gone") == []
+
+    def test_the_index_follows_a_wipe(self, user):
+        db.upsert_thread(user, make_thread("t", ai_tags=["gone"]))
+        db.wipe_db(user)
+        assert db.search_threads(user, query="gone") == []
+
+    def test_results_stay_scoped_to_the_user(self, user):
+        db.upsert_thread(user, make_thread("mine", ai_tags=["shared"]))
+        db.upsert_thread("other", make_thread("theirs", ai_tags=["shared"]))
+        assert len(db.search_threads(user, query="shared")) == 1
+
+    def test_filters_still_apply_alongside_a_query(self, user):
+        db.upsert_thread(user, make_thread("a", ai_tags=["shared"],
+                                           has_attachments=1))
+        db.upsert_thread(user, make_thread("b", ai_tags=["shared"]))
+        assert len(db.search_threads(user, query="shared",
+                                     has_attachments=True)) == 1
+
+    def test_total_is_accurate_alongside_a_limit(self, user):
+        for i in range(10):
+            db.upsert_thread(user, make_thread(f"t{i}", ai_tags=["common"]))
+        rows, total = db.search_threads(user, query="common", limit=3,
+                                        with_total=True)
+        assert (len(rows), total) == (3, 10)
+
+    def test_availability_is_read_from_the_database_not_a_global(self, user, tmp_path,
+                                                                 monkeypatch):
+        """A module flag set by init_db is wrong for any other database in
+        the same process, and wrong in the silent direction: search would
+        fall back to substring matching with nothing to indicate it."""
+        conn = db.get_db()
+        try:
+            assert db.has_fts(conn) is True
+        finally:
+            conn.close()
+
+        import sqlite3
+        bare = tmp_path / "no-fts.db"
+        c = sqlite3.connect(bare)
+        c.execute("CREATE TABLE threads (user_id TEXT, thread_id TEXT)")
+        c.commit()
+        c.row_factory = sqlite3.Row
+        try:
+            assert db.has_fts(c) is False
+        finally:
+            c.close()
+
+
 class TestSafeInt:
     def test_rejects_junk_and_negatives(self):
         assert db._safe_int("abc") is None

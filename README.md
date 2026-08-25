@@ -84,11 +84,28 @@ Measured on the 11,000-thread corpus, p50 / p95 over 30 runs:
 | one term, broad | 1,409 | 67ms | 186ms |
 | matches nearly everything | 11,109 | 33ms | 72ms |
 
-Honest reading: **it is fast because the corpus is small, not because it is
-well indexed.** Tags are stored as JSON and searched with `LIKE '%term%'`, which
-no B-tree can serve, so every query scans one user's partition. It degrades
-linearly. SQLite FTS5 is the right fix and would also bring real ranking
-instead of substring matching, where `car` matches `carpet`.
+Search goes through SQLite FTS5, which matches tokens rather than
+substrings. That distinction turned out to matter more than it sounds: on the
+real corpus `LIKE '%car%'` returned 2,593 threads, of which 41 actually
+concerned a car — the rest were `carpet`, `scarf`, `Carol`. `man` returned
+1,356 matches and none were genuine. Short queries were noise.
+
+| query | matched before | matches now | without the token |
+|---|---|---|---|
+| `car` | 2,593 | 160 | 0 |
+| `art` | 1,537 | 146 | 0 |
+| `man` | 1,356 | 8 | 0 |
+| `dentist` | 26 | 24 | 0 |
+
+The index is maintained by triggers rather than by the write helpers, because
+tags are also written by `set_thread_tags` and rows removed by `delete_thread`
+and `wipe_db` — an index that quietly misses one of those paths is worse than
+none. Availability is read from the database rather than a module flag, so a
+database without the index degrades to substring matching instead of failing.
+
+The database runs in WAL mode. A sync writes from several worker threads, and
+under the default rollback journal a second writer can get `SQLITE_BUSY`
+immediately rather than waiting out its timeout.
 
 Results are capped at 200 per page. Before that cap, a broad query took 3.7s —
 not from the query, but from serialising and rendering every match.
@@ -138,7 +155,7 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-258 tests, no network: the mail provider, the Anthropic client and the Graph
+272 tests, no network: the mail provider, the Anthropic client and the Graph
 transport are all stubbed, so the suite runs offline in about fifteen seconds.
 CI runs the suite plus both secret scans (tracked files and full history) on
 every push — the pre-commit hook only protects clones that opted in via

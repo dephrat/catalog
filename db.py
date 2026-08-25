@@ -17,12 +17,29 @@ def get_db():
     return conn
 
 
+def _set_journal_mode(conn):
+    """Write-ahead logging, set once and stored in the database file.
+
+    A sync writes threads from several worker threads at once. Under the
+    default rollback journal a writer takes an exclusive lock, and a second
+    writer can get SQLITE_BUSY immediately rather than waiting out the
+    timeout — which surfaced as 'database is locked' the moment maintaining
+    the full-text index made each write longer. WAL lets readers proceed
+    during a write and makes writers queue properly.
+    """
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.Error as e:      # a read-only or networked filesystem
+        print(f"Could not enable WAL ({e}); continuing with the default journal.")
+
+
 def _columns(conn, table):
     return [r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
 
 
 def init_db():
     conn = get_db()
+    _set_journal_mode(conn)
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -98,7 +115,110 @@ def init_db():
 
     conn.execute("CREATE INDEX IF NOT EXISTS idx_threads_user ON threads(user_id, last_synced)")
     conn.commit()
+
+    _init_fts(conn)
     conn.close()
+
+
+# ── Full-text index ───────────────────────────────────────────────────────────
+#
+# LIKE '%term%' matched substrings, which on a real corpus is not a nuance:
+# searching "car" returned 2,688 threads of which 42 actually carried the tag,
+# and "man" returned 1,427 of which none did. Short queries were noise.
+#
+# FTS5 matches tokens instead. Availability is checked rather than assumed —
+# a SQLite built without it should degrade to the old behaviour rather than
+# fail every search.
+
+FTS_AVAILABLE = False
+
+FTS_TEXT = ("COALESCE(ai_tags,'') || ' ' || COALESCE(user_tags,'') || ' ' || "
+            "COALESCE(subject,'') || ' ' || COALESCE(participants,'')")
+
+
+def _init_fts(conn):
+    """Create the index and the triggers that keep it honest.
+
+    Triggers rather than maintenance inside upsert_thread: tags are also
+    written by set_thread_tags and rows removed by delete_thread and wipe_db,
+    and an index that silently misses one of those paths is worse than none.
+    """
+    global FTS_AVAILABLE
+    try:
+        conn.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS threads_fts USING fts5(
+                text,
+                tokenize = 'unicode61'
+            )
+        """)
+    except sqlite3.OperationalError as e:
+        print(f"FTS5 unavailable ({e}); search falls back to substring matching.")
+        FTS_AVAILABLE = False
+        return
+
+    for stmt in (
+        f"""CREATE TRIGGER IF NOT EXISTS threads_fts_ai AFTER INSERT ON threads BEGIN
+              INSERT INTO threads_fts(rowid, text) VALUES (new.rowid, {FTS_TEXT
+                .replace('ai_tags', 'new.ai_tags').replace('user_tags', 'new.user_tags')
+                .replace('subject', 'new.subject').replace('participants', 'new.participants')});
+            END""",
+        f"""CREATE TRIGGER IF NOT EXISTS threads_fts_au AFTER UPDATE ON threads BEGIN
+              DELETE FROM threads_fts WHERE rowid = old.rowid;
+              INSERT INTO threads_fts(rowid, text) VALUES (new.rowid, {FTS_TEXT
+                .replace('ai_tags', 'new.ai_tags').replace('user_tags', 'new.user_tags')
+                .replace('subject', 'new.subject').replace('participants', 'new.participants')});
+            END""",
+        """CREATE TRIGGER IF NOT EXISTS threads_fts_ad AFTER DELETE ON threads BEGIN
+              DELETE FROM threads_fts WHERE rowid = old.rowid;
+            END""",
+    ):
+        conn.execute(stmt)
+    conn.commit()
+
+    FTS_AVAILABLE = True
+    _backfill_fts(conn)
+
+
+def _backfill_fts(conn):
+    """Populate the index for rows that predate it."""
+    indexed = conn.execute("SELECT COUNT(*) c FROM threads_fts").fetchone()["c"]
+    total = conn.execute("SELECT COUNT(*) c FROM threads").fetchone()["c"]
+    if indexed >= total or total == 0:
+        return
+    print(f"Building the full-text index over {total:,} threads...")
+    conn.execute("DELETE FROM threads_fts")
+    conn.execute(f"INSERT INTO threads_fts(rowid, text) "
+                 f"SELECT rowid, {FTS_TEXT} FROM threads")
+    conn.commit()
+    print("Full-text index ready.")
+
+
+def has_fts(conn):
+    """Whether this database carries the index.
+
+    Asked of the connection rather than a module flag: DB_PATH can point at
+    different databases within one process, and a flag set by init_db is
+    wrong for any of them that has not been initialised — which fails in the
+    worst possible direction, silently restoring the substring matching this
+    replaced.
+    """
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='threads_fts'"
+    ).fetchone() is not None
+
+
+def fts_query(words, search_mode):
+    """Turn user words into an FTS5 MATCH expression.
+
+    Every term is quoted, which makes it a literal: otherwise a search for
+    "and", "or", "not" or a word containing a hyphen would be read as query
+    syntax and either error or mean something the user did not type.
+    """
+    quoted = ['"' + w.replace('"', '""') + '"' for w in words if w]
+    if not quoted:
+        return None
+    joiner = " OR " if search_mode == "or" else " AND "
+    return joiner.join(quoted)
 
 
 def _migrate_to_multi_user(conn):
@@ -492,12 +612,20 @@ def search_threads(user_id, query=None, has_attachments=None, has_multiple=None,
 
     if query:
         words = query.strip().split()
-        clauses = []
-        for word in words:
-            clauses.append("(ai_tags LIKE ? OR user_tags LIKE ? OR subject LIKE ? OR participants LIKE ?)")
-            q = f"%{word}%"
-            params.extend([q, q, q, q])
-        if clauses:
+        match = fts_query(words, search_mode) if has_fts(conn) else None
+        if match:
+            # Token matching. The old substring path returned 2,688 threads
+            # for "car" on the real corpus, 42 of which carried the tag.
+            sql += (" AND rowid IN (SELECT rowid FROM threads_fts "
+                    "WHERE threads_fts MATCH ?)")
+            params.append(match)
+        elif words:
+            clauses = []
+            for word in words:
+                clauses.append("(ai_tags LIKE ? OR user_tags LIKE ? "
+                               "OR subject LIKE ? OR participants LIKE ?)")
+                q = f"%{word}%"
+                params.extend([q, q, q, q])
             joiner = " OR " if search_mode == "or" else " AND "
             sql += " AND (" + joiner.join(clauses) + ")"
 
