@@ -192,6 +192,17 @@ class TestFullTextSearch:
                                         with_total=True)
         assert (len(rows), total) == (3, 10)
 
+    def test_wildcards_are_literal_in_the_fallback_path(self, user, monkeypatch):
+        """When FTS is unavailable the LIKE path runs, where an unescaped %
+        typed by a user means 'match anything' rather than a percent sign."""
+        monkeypatch.setattr(db, "has_fts", lambda conn: False)
+        db.upsert_thread(user, make_thread("a", ai_tags=["50% off"]))
+        db.upsert_thread(user, make_thread("b", ai_tags=["unrelated"]))
+
+        assert len(db.search_threads(user, query="%")) == 1, "matches the literal %"
+        assert len(db.search_threads(user, query="50%")) == 1
+        assert len(db.search_threads(user, query="_")) == 0, "_ is not any-character"
+
     def test_availability_is_read_from_the_database_not_a_global(self, user, tmp_path,
                                                                  monkeypatch):
         """A module flag set by init_db is wrong for any other database in

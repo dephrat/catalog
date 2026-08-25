@@ -751,10 +751,16 @@ def fetch_thread_content(user_id, t, total, fetch_processed, fetch_lock,
 
 
 def usage_recorder(user_id):
-    """Callback that files token counts against a user."""
-    day = datetime.now(timezone.utc).date().isoformat()
+    """Callback that files token counts against a user.
 
+    The day is read when usage is recorded, not when the recorder is built.
+    A batch sync can run for hours, so capturing it once filed everything
+    after midnight under the previous day — and since the spend limit counts
+    from the first of the month, a run crossing month end charged the old
+    month and left the new one looking untouched.
+    """
     def record(input_tokens, output_tokens, cache_read, batched):
+        day = datetime.now(timezone.utc).date().isoformat()
         db.record_usage(user_id, input_tokens, output_tokens, cache_read, batched, day)
 
     return record

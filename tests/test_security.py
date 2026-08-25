@@ -531,6 +531,29 @@ class TestSpendLimit:
         with app.app.test_request_context("/"):
             assert app.over_spend_limit(user)[0] is False
 
+    def test_a_run_crossing_midnight_files_to_the_right_day(self, user, monkeypatch):
+        """usage_recorder captured the day when it was built. A batch sync
+        runs for hours, so a run crossing month end charged the old month and
+        left the new one looking untouched — with the spend limit reading
+        from the first, that is a hole in the limit itself."""
+        from datetime import datetime as real_datetime, timezone as real_tz
+        db.upsert_user(user, "guest@example.com", "Guest", "2024-01-01T00:00:00Z")
+        clock = {"now": real_datetime(2024, 1, 31, 23, 59, tzinfo=real_tz.utc)}
+
+        class FakeDatetime:
+            @staticmethod
+            def now(tz=None):
+                return clock["now"]
+
+        monkeypatch.setattr(app, "datetime", FakeDatetime)
+        record = app.usage_recorder(user)          # built before midnight
+        clock["now"] = real_datetime(2024, 2, 1, 0, 30, tzinfo=real_tz.utc)
+        record(1_000_000, 0, 0, False)             # recorded after it
+
+        february = db.usage_since(user, "2024-02-01")
+        assert february["input_tokens"] == 1_000_000, \
+            "spend after midnight belongs to the new month"
+
     def test_a_malformed_limit_is_ignored_rather_than_crashing(self, monkeypatch):
         """A typo in the dashboard must not take the app down at import."""
         import importlib

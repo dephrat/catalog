@@ -622,9 +622,14 @@ def search_threads(user_id, query=None, has_attachments=None, has_multiple=None,
         elif words:
             clauses = []
             for word in words:
-                clauses.append("(ai_tags LIKE ? OR user_tags LIKE ? "
-                               "OR subject LIKE ? OR participants LIKE ?)")
-                q = f"%{word}%"
+                clauses.append(
+                    "(ai_tags LIKE ? ESCAPE '\\' OR user_tags LIKE ? ESCAPE '\\' "
+                    "OR subject LIKE ? ESCAPE '\\' OR participants LIKE ? ESCAPE '\\')")
+                # % and _ are LIKE wildcards; a user typing them means the
+                # characters, not "match anything".
+                escaped = (word.replace("\\", "\\\\")
+                               .replace("%", "\\%").replace("_", "\\_"))
+                q = f"%{escaped}%"
                 params.extend([q, q, q, q])
             joiner = " OR " if search_mode == "or" else " AND "
             sql += " AND (" + joiner.join(clauses) + ")"

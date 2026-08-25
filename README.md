@@ -155,7 +155,7 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-272 tests, no network: the mail provider, the Anthropic client and the Graph
+274 tests, no network: the mail provider, the Anthropic client and the Graph
 transport are all stubbed, so the suite runs offline in about fifteen seconds.
 CI runs the suite plus both secret scans (tracked files and full history) on
 every push — the pre-commit hook only protects clones that opted in via
