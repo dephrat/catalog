@@ -385,6 +385,63 @@ class TestCredentialsAreNotInTheCookie:
             assert db.get_token_cache("u-never-signed-in") is None
 
 
+class TestDetectiveBounds:
+    """MAX_ROUNDS lives in browser JavaScript, so it binds only a cooperative
+    client. /detective/ask relays whatever it is handed, which makes it an
+    open-ended model endpoint paid for by the operator unless the server
+    imposes its own limits."""
+
+    def _client(self, user, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake")
+        monkeypatch.setattr(app, "ADMIN_EMAILS", {"admin@example.com"})
+        app.app.config["TESTING"] = True
+        client = app.app.test_client()
+        with client.session_transaction() as sess:
+            sess["user_id"] = user
+            sess["user_email"] = "admin@example.com"
+        return client
+
+    def test_too_many_messages_is_refused(self, user, monkeypatch):
+        client = self._client(user, monkeypatch)
+        messages = [{"role": "user", "content": "hi"}
+                    for _ in range(app.DETECTIVE_MAX_MESSAGES + 1)]
+        resp = client.post("/detective/ask", json={"messages": messages})
+        assert resp.status_code == 400
+        assert "too long" in resp.get_json()["error"]
+
+    def test_an_oversized_conversation_is_refused(self, user, monkeypatch):
+        client = self._client(user, monkeypatch)
+        huge = [{"role": "user", "content": "x" * (app.DETECTIVE_MAX_CHARS + 10)}]
+        resp = client.post("/detective/ask", json={"messages": huge})
+        assert resp.status_code == 400
+        assert "too large" in resp.get_json()["error"]
+
+    def test_a_normal_session_is_not_obstructed(self, user, monkeypatch):
+        """The caps must sit well clear of ordinary use."""
+        client = self._client(user, monkeypatch)
+        sent = {}
+
+        def fake_create(**kwargs):
+            sent.update(kwargs)
+            class R:
+                content = [type("B", (), {"type": "text", "text": "ok"})()]
+                usage = type("U", (), {"cache_read_input_tokens": 0,
+                                       "cache_creation_input_tokens": 0,
+                                       "input_tokens": 1, "output_tokens": 1})()
+            return R()
+
+        monkeypatch.setattr(app.anthropic_client.messages, "create", fake_create)
+        messages = [{"role": "user", "content": "find the car loan"}] * 40
+        resp = client.post("/detective/ask", json={"messages": messages})
+        assert resp.status_code == 200
+        assert sent, "a legitimate session must still reach the model"
+
+    def test_a_non_list_body_is_refused(self, user, monkeypatch):
+        client = self._client(user, monkeypatch)
+        resp = client.post("/detective/ask", json={"messages": {"role": "user"}})
+        assert resp.status_code == 400
+
+
 class TestOAuthState:
     """Login CSRF. Without a state parameter, an attacker can send a victim
     to /callback carrying the attacker's authorisation code; the victim's

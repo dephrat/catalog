@@ -67,6 +67,17 @@ if not app.secret_key:
     else:
         raise RuntimeError("SECRET_KEY is not set — sessions would be insecure. Set it in .env.")
 
+# ── Session cookie hardening ──────────────────────────────────────────────────
+# Secure is conditional because it would break http://localhost, where the
+# demo and local development run. PUBLIC_BASE_URL is the honest signal that
+# this instance is served over TLS.
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=(os.getenv("PUBLIC_BASE_URL", "").startswith("https://")
+                           or os.getenv("REDIRECT_URI", "").startswith("https://")),
+)
+
 db.init_db()
 
 if DEMO_MODE:
@@ -135,6 +146,14 @@ BATCH_RECORD_TTL_DAYS = 29
 # away work that has already been paid for.
 BATCH_UNKNOWN_TOLERANCE = 3
 DETECTIVE_MODEL = "claude-sonnet-4-6"
+
+# Server-side bounds on a Detective session. The browser enforces its own
+# round limit, but that is a courtesy: /detective/ask relays whatever it is
+# given, so without these an authenticated caller could drive the operator's
+# API key as an open-ended model endpoint. Both are deliberately looser than
+# the client's own limits — they stop abuse, not ordinary use.
+DETECTIVE_MAX_MESSAGES = 60          # ~2 per round against a 20-round client
+DETECTIVE_MAX_CHARS = 400_000        # whole conversation, resent every round
 
 # ── Access control config ─────────────────────────────────────────────────────
 # Two distinct jobs, deliberately separate env vars:
@@ -1785,6 +1804,17 @@ def detective_ask():
     system_prompt = data.get("system")
     if not messages:
         return jsonify({"error": "no messages"}), 400
+
+    if not isinstance(messages, list):
+        return jsonify({"error": "messages must be a list"}), 400
+    if len(messages) > DETECTIVE_MAX_MESSAGES:
+        return jsonify({"error": "this Detective session has run too long — "
+                                 "start a new search"}), 400
+
+    size = len(json.dumps(messages)) + len(system_prompt or "")
+    if size > DETECTIVE_MAX_CHARS:
+        return jsonify({"error": "this Detective session has grown too large — "
+                                 "start a new search"}), 400
 
     # Second breakpoint, on the last message of the history. Each round's
     # prefix is identical to the previous round's, so the accumulated
