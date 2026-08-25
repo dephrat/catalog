@@ -248,12 +248,37 @@ class TestAdminRetagIsReachable:
         assert 'data-retag="1"' not in html
         assert "needs tagging" not in html
 
+    def test_retag_offered_only_for_the_signed_in_account(self, user, monkeypatch):
+        """The route acts on current_user_id(), so a button beside someone
+        else's row promises something it cannot do — retagging refetches
+        bodies from the provider using that account's own token."""
+        db.upsert_user(user, "me@example.com", "Me", "2024-01-01T00:00:00Z")
+        db.upsert_thread(user, make_thread("mine", ai_tags=[]))
+        db.upsert_user("other-user", "them@example.com", "Them",
+                       "2024-01-01T00:00:00Z")
+        db.upsert_thread("other-user", make_thread("theirs", ai_tags=[]))
+
+        html = self._admin_client(user, monkeypatch).get("/admin").get_data(as_text=True)
+        assert html.count('data-retag="1"') == 1, "one button, for the viewer only"
+        assert "sign in as this account to retag" in html
+
+    def test_legacy_rows_point_at_the_claim_script(self, user, monkeypatch):
+        """__legacy__ is a migration placeholder, not an account: nobody can
+        sign in as it and it holds no token, so retag can never apply."""
+        db.upsert_thread(db.LEGACY_USER_ID, make_thread("orphan", ai_tags=[]))
+        html = self._admin_client(user, monkeypatch).get("/admin").get_data(as_text=True)
+        assert "claim_legacy.py" in html
+        assert 'data-retag="1"' not in html
+        assert "invisible to every" in html
+
     def test_a_user_with_no_users_row_still_appears(self, user, monkeypatch):
-        """Threads can outlive their users row via import or legacy claim."""
+        """Threads can outlive their users row via import or legacy claim.
+        The row must surface so the untagged threads are visible at all; the
+        retag control is a separate question, covered above."""
         db.upsert_thread("orphan-user", make_thread("c1", ai_tags=[]))
         html = self._admin_client(user, monkeypatch).get("/admin").get_data(as_text=True)
-        assert 'data-retag="1"' in html
-        assert "orphan-user" in html
+        assert "needs tagging" in html
+        assert "orphan-user" in html, "falls back to the id when there is no email"
 
 
 class TestOAuthState:

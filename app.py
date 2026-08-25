@@ -319,8 +319,10 @@ def admin_required(view):
 def inject_identity():
     return {
         "current_user_email": session.get("user_email"),
+        "viewer_user_id": session.get("user_id"),
         "viewer_is_admin": is_admin(session.get("user_email")),
         "demo_mode": DEMO_MODE,
+        "legacy_user_id": db.LEGACY_USER_ID,
     }
 
 

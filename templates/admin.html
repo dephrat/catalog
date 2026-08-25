@@ -74,18 +74,29 @@
           <div class="who">
             <div class="name">{{ u.email }}</div>
             <div class="email">
-              stored without tags — searchable by subject and sender, but not
-              by topic until re-tagged
+              {%- if user_id == legacy_user_id %}
+                rows from before per-user catalogs existed — invisible to every
+                account's search until adopted into one
+              {%- else %}
+                stored without tags — searchable by subject and sender, but not
+                by topic until re-tagged
+              {%- endif %}
             </div>
           </div>
           <span class="status pending">{{ "{:,}".format(u.untagged) }} untagged</span>
-          <button type="button" class="ok" data-retag="1">retag</button>
+          {%- if user_id == legacy_user_id %}
+            <span class="status">unclaimed — run claim_legacy.py</span>
+          {%- elif user_id == viewer_user_id %}
+            <button type="button" class="ok" data-retag="1">retag</button>
+          {%- else %}
+            <span class="status">sign in as this account to retag</span>
+          {%- endif %}
         </div>
       {% endfor %}
       <p class="note">
-        Re-tagging sends these threads to the model again and costs tokens.
-        Threads land here when a tagging batch came back malformed, or when a
-        sync stored them and was interrupted before tagging ran.
+        Re-tagging sends these threads to the model again and costs tokens, and
+        acts on the signed-in account only — retagging refetches message bodies
+        from the mail provider, which needs that account&rsquo;s own token.
       </p>
     {% endif %}
 
