@@ -281,6 +281,110 @@ class TestAdminRetagIsReachable:
         assert "orphan-user" in html, "falls back to the id when there is no email"
 
 
+def _decode_session_cookie(resp):
+    """Read a Flask session cookie without the signing key.
+
+    Flask signs the session; it does not encrypt it. That is the whole point
+    of this file's concern: anything put in there is readable by whoever
+    holds the cookie.
+    """
+    import base64
+    import zlib
+    raw_cookie = next((v.split(";")[0].split("=", 1)[1]
+                       for v in resp.headers.getlist("Set-Cookie")
+                       if v.startswith("session=")), None)
+    if not raw_cookie:
+        return None
+    parts = raw_cookie.split(".")
+    payload = parts[1] if parts[0] == "" else parts[0]
+    data = base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))
+    if parts[0] == "":
+        data = zlib.decompress(data)
+    return data.decode("utf8", "ignore")
+
+
+class TestCredentialsAreNotInTheCookie:
+    """A signed cookie is tamper-proof, not confidential. Keeping the OAuth
+    token cache there put a long-lived refresh token — ongoing read access to
+    a mailbox, independent of this app — into the browser of whoever held it.
+    """
+
+    SECRET = "LIVE-REFRESH-TOKEN-SHOULD-NEVER-LEAVE-THE-SERVER"
+
+    class _FakeProvider:
+        name = "microsoft"
+        label = "Fake"
+
+        def auth_url(self, state=None):
+            return f"https://login.example/authorize?state={state}"
+
+        def token_from_code(self, code):
+            return "access-token-abc", (
+                '{"RefreshToken": {"k": {"secret": '
+                '"LIVE-REFRESH-TOKEN-SHOULD-NEVER-LEAVE-THE-SERVER"}}}')
+
+        def refresh_token(self, token_cache):
+            return "access-token-abc", token_cache
+
+        def get_identity(self, access_token):
+            return {"id": "u-real", "email": "owner@example.com",
+                    "display_name": "Owner"}
+
+    def _sign_in(self, monkeypatch):
+        monkeypatch.setattr(app, "DEMO_MODE", False)
+        monkeypatch.setattr(providers, "get", lambda name=None: self._FakeProvider())
+        monkeypatch.setattr(app, "ADMIN_EMAILS", {"owner@example.com"})
+        app.app.config["TESTING"] = True
+        client = app.app.test_client()
+        client.get("/login")
+        with client.session_transaction() as sess:
+            state = sess["oauth_state"]
+        resp = client.get(f"/callback?code=real-code&state={state}")
+        return client, resp
+
+    def test_the_refresh_token_never_reaches_the_cookie(self, user, monkeypatch):
+        client, resp = self._sign_in(monkeypatch)
+        assert resp.status_code == 302, "the sign-in must still succeed"
+
+        decoded = _decode_session_cookie(resp)
+        assert decoded is not None, "a session cookie should have been issued"
+        assert self.SECRET not in decoded
+        assert "token_cache" not in decoded
+        assert "access_token" not in decoded
+
+    def test_the_cookie_carries_identity_only(self, user, monkeypatch):
+        client, resp = self._sign_in(monkeypatch)
+        decoded = _decode_session_cookie(resp)
+        assert "u-real" in decoded, "the session still identifies the user"
+
+    def test_the_credentials_are_stored_server_side(self, user, monkeypatch):
+        self._sign_in(monkeypatch)
+        assert self.SECRET in (db.get_token_cache("u-real") or "")
+
+    def test_signing_out_clears_the_stored_credentials(self, user, monkeypatch):
+        client, _ = self._sign_in(monkeypatch)
+        assert db.get_token_cache("u-real")
+        client.get("/logout")
+        assert db.get_token_cache("u-real") is None, \
+            "a signed-out account must leave no refresh token at rest"
+
+    def test_a_second_sign_in_does_not_wipe_the_cache(self, user, monkeypatch):
+        """upsert_user runs on every sign-in and must not clobber it."""
+        self._sign_in(monkeypatch)
+        db.upsert_user("u-real", "owner@example.com", "Owner",
+                       "2025-01-01T00:00:00Z")
+        assert self.SECRET in (db.get_token_cache("u-real") or "")
+
+    def test_a_session_without_stored_credentials_yields_no_token(self, user, monkeypatch):
+        """The cookie alone must not be enough to act on a mailbox."""
+        monkeypatch.setattr(providers, "get", lambda name=None: self._FakeProvider())
+        app.app.config["TESTING"] = True
+        with app.app.test_request_context("/"):
+            from flask import session as flask_session
+            flask_session["user_id"] = "u-never-signed-in"
+            assert db.get_token_cache("u-never-signed-in") is None
+
+
 class TestOAuthState:
     """Login CSRF. Without a state parameter, an attacker can send a victim
     to /callback carrying the attacker's authorisation code; the victim's

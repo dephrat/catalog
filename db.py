@@ -143,6 +143,14 @@ def _migrate_to_multi_user(conn):
         ).fetchone()["c"]
         print(f"Parked {n} existing threads as legacy. Run claim_legacy.py to adopt them.")
 
+    if "token_cache" not in _columns(conn, "users"):
+        # Token caches used to ride in the Flask session cookie, which is
+        # signed but not encrypted — the refresh token inside was readable by
+        # anyone holding the cookie. They live here instead now.
+        print("Adding users.token_cache; existing sessions will need to sign in again.")
+        conn.execute("ALTER TABLE users ADD COLUMN token_cache TEXT")
+        conn.commit()
+
     if "user_id" not in _columns(conn, "sync_state"):
         # Sync state is transient; drop rather than migrate.
         conn.execute("DROP TABLE sync_state")
@@ -168,7 +176,43 @@ def upsert_user(user_id, email, display_name, now):
             email=excluded.email,
             display_name=excluded.display_name,
             last_seen=excluded.last_seen
+            -- token_cache deliberately untouched: it is written separately
+            -- and a sign-in must not wipe a cache a running sync is using.
     """, (user_id, email, display_name, now, now))
+    conn.commit()
+    conn.close()
+
+
+def set_token_cache(user_id, token_cache):
+    """Persist a provider token cache server-side.
+
+    It holds a long-lived refresh token. Flask's session cookie is signed
+    rather than encrypted, so anything kept there is readable by whoever
+    holds the cookie — which for a shared deployment means handing out other
+    people's mailbox credentials.
+    """
+    conn = get_db()
+    conn.execute("UPDATE users SET token_cache=? WHERE user_id=?",
+                 (token_cache, user_id))
+    conn.commit()
+    conn.close()
+
+
+def get_token_cache(user_id):
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT token_cache FROM users WHERE user_id=?", (user_id,)
+        ).fetchone()
+        return row["token_cache"] if row else None
+    finally:
+        conn.close()
+
+
+def clear_token_cache(user_id):
+    """Drop stored credentials, so signing out leaves none at rest."""
+    conn = get_db()
+    conn.execute("UPDATE users SET token_cache=NULL WHERE user_id=?", (user_id,))
     conn.commit()
     conn.close()
 

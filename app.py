@@ -419,7 +419,7 @@ def login_required(view):
     """Reject anything without an authenticated, catalog-scoped session."""
     @wraps(view)
     def wrapper(*args, **kwargs):
-        if "access_token" not in session or "user_id" not in session:
+        if "user_id" not in session:
             if wants_json():
                 return jsonify({"error": "not authenticated", "login": "/login"}), 401
             return redirect(url_for("login"))
@@ -436,14 +436,21 @@ def current_provider():
 
 
 def get_fresh_token():
-    token_cache = session.get("token_cache")
+    """Mint an access token for the signed-in account.
+
+    Both the refresh cache and the resulting access token stay server-side.
+    Nothing bearer-shaped goes in the cookie: it is signed, not encrypted, so
+    its contents are readable by anyone who holds it.
+    """
+    user_id = session.get("user_id")
+    if not user_id:
+        return None
+
+    token_cache = db.get_token_cache(user_id)
     access_token, new_cache = current_provider().refresh_token(token_cache)
-    if new_cache:
-        session["token_cache"] = new_cache
-    if access_token:
-        session["access_token"] = access_token
-        return access_token
-    return session.get("access_token")
+    if new_cache and new_cache != token_cache:
+        db.set_token_cache(user_id, new_cache)
+    return access_token
 
 
 # ── Sync helpers ──────────────────────────────────────────────────────────────
@@ -1262,7 +1269,6 @@ def login():
         session.clear()
         session["user_id"] = demo_seed.DEMO_USER_ID
         session["user_email"] = demo_seed.DEMO_EMAIL
-        session["access_token"] = "demo"
         session["provider"] = "demo"
         return redirect(url_for("index"))
     provider = providers.get(request.args.get("provider"))
@@ -1320,9 +1326,10 @@ def callback():
         db.upsert_user(user_id, email, display_name,
                        datetime.now(timezone.utc).isoformat())
 
+        db.set_token_cache(user_id, token_cache)
+
         session.clear()
-        session["access_token"] = access_token
-        session["token_cache"] = token_cache
+        # Identity only. The credentials are in the database.
         session["user_id"] = user_id
         session["user_email"] = email
         session["provider"] = provider.name
@@ -1448,6 +1455,11 @@ def healthz():
 
 @app.route("/logout")
 def logout():
+    # Drop stored credentials too, so a signed-out account leaves no refresh
+    # token behind. A sync already running keeps its own in-memory copy.
+    user_id = session.get("user_id")
+    if user_id and not DEMO_MODE:
+        db.clear_token_cache(user_id)
     session.clear()
     return redirect(url_for("login"))
 
@@ -1473,7 +1485,8 @@ def sync():
     set_running(sync_running, user_id, True)
     t = threading.Thread(
         target=run_sync,
-        args=(user_id, current_provider(), get_fresh_token(), session.get("token_cache")),
+        args=(user_id, current_provider(), get_fresh_token(),
+              db.get_token_cache(user_id)),
         daemon=True
     )
     t.start()
@@ -1537,7 +1550,7 @@ def retag_empty():
     t = threading.Thread(
         target=run_retag_empty,
         args=(user_id, current_provider(), get_fresh_token(),
-              session.get("token_cache")),
+              db.get_token_cache(user_id)),
         daemon=True
     )
     t.start()
