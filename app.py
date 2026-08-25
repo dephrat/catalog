@@ -1396,10 +1396,14 @@ def admin():
     usage = db.usage_by_user()
     for user_id, stats in usage.items():
         stats["cost"] = estimate_cost(stats)
-        stats["untagged"] = db.count_untagged(user_id)
+
+    # Deliberately independent of usage. Needing to be tagged has nothing to
+    # do with having recorded token spend, and tying them together hid the
+    # retag control on exactly the accounts that needed it.
     return render_template("admin.html",
                            requests=db.list_access_requests(),
                            usage=usage,
+                           untagged=db.untagged_by_user(),
                            cooldown=DENY_COOLDOWN_MINUTES)
 
 

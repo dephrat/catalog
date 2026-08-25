@@ -762,6 +762,28 @@ def usage_by_user():
     return out
 
 
+def untagged_by_user():
+    """Every user holding untagged threads, whether or not they have usage.
+
+    count_untagged answers for one user, and the admin page used to call it
+    only while looping over usage_log rows — so an account that had never
+    recorded usage could not be seen to need tagging, and the retag control
+    that lived in that loop never rendered.
+    """
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT t.user_id, COALESCE(u.email, t.user_id) email, COUNT(*) untagged
+          FROM threads t
+          LEFT JOIN users u ON u.user_id = t.user_id
+         WHERE t.ai_tags IS NULL OR t.ai_tags = '[]'
+         GROUP BY t.user_id
+         ORDER BY untagged DESC
+    """).fetchall()
+    conn.close()
+    return {r["user_id"]: {"email": r["email"], "untagged": r["untagged"]}
+            for r in rows}
+
+
 def count_untagged(user_id):
     conn = get_db()
     n = conn.execute(

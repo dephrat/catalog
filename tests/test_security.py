@@ -184,6 +184,55 @@ class TestDemoGate:
                              addr, re.I) is None, addr
 
 
+class TestAdminRetagIsReachable:
+    """The retag control used to live inside the tagging-usage loop, so it
+    rendered only for accounts that had recorded token spend. usage_log was
+    added long after the tagging runs it describes, so it was empty — and the
+    control was invisible on precisely the accounts that needed it. The route
+    being correct is not the same as the button existing."""
+
+    def _admin_client(self, user, monkeypatch):
+        monkeypatch.setattr(app, "DEMO_MODE", False)
+        monkeypatch.setattr(app, "ADMIN_EMAILS", {"admin@example.com"})
+        app.app.config["TESTING"] = True
+        client = app.app.test_client()
+        with client.session_transaction() as sess:
+            sess["user_id"] = user
+            sess["user_email"] = "admin@example.com"
+            sess["access_token"] = "t"
+        return client
+
+    def test_retag_renders_with_no_usage_recorded(self, user, monkeypatch):
+        db.upsert_user(user, "owner@example.com", "Owner", "2024-01-01T00:00:00Z")
+        db.upsert_thread(user, make_thread("c1", ai_tags=[]))
+        assert db.usage_by_user() == {}, "the whole point: no usage rows"
+
+        html = self._admin_client(user, monkeypatch).get("/admin").get_data(as_text=True)
+        assert 'data-retag="1"' in html, "retag control must not depend on usage data"
+        assert "needs tagging" in html
+
+    def test_untagged_count_is_shown(self, user, monkeypatch):
+        db.upsert_user(user, "owner@example.com", "Owner", "2024-01-01T00:00:00Z")
+        for i in range(3):
+            db.upsert_thread(user, make_thread(f"c{i}", ai_tags=[]))
+        html = self._admin_client(user, monkeypatch).get("/admin").get_data(as_text=True)
+        assert "3 untagged" in html
+
+    def test_nothing_untagged_shows_no_control(self, user, monkeypatch):
+        db.upsert_user(user, "owner@example.com", "Owner", "2024-01-01T00:00:00Z")
+        db.upsert_thread(user, make_thread("c1", ai_tags=["tagged"]))
+        html = self._admin_client(user, monkeypatch).get("/admin").get_data(as_text=True)
+        assert 'data-retag="1"' not in html
+        assert "needs tagging" not in html
+
+    def test_a_user_with_no_users_row_still_appears(self, user, monkeypatch):
+        """Threads can outlive their users row via import or legacy claim."""
+        db.upsert_thread("orphan-user", make_thread("c1", ai_tags=[]))
+        html = self._admin_client(user, monkeypatch).get("/admin").get_data(as_text=True)
+        assert 'data-retag="1"' in html
+        assert "orphan-user" in html
+
+
 class TestOAuthState:
     """Login CSRF. Without a state parameter, an attacker can send a victim
     to /callback carrying the attacker's authorisation code; the victim's

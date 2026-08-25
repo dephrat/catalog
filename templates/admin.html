@@ -58,16 +58,34 @@
               {%- if u.batched_requests %} ({{ u.batched_requests }} batched){% endif %}
             </div>
           </div>
-          {% if u.untagged %}
-            <span class="status pending">{{ u.untagged }} untagged</span>
-            <button type="button" class="ok" data-retag="1">retag</button>
-          {% endif %}
           <span class="status">~${{ "%.2f"|format(u.cost) }}</span>
         </div>
       {% endfor %}
       <p class="note">
         Estimated from recorded token counts at Haiku list prices, with batched
         requests billed at half. Anthropic&rsquo;s console is authoritative.
+      </p>
+    {% endif %}
+
+    {% if untagged %}
+      <h2>needs tagging</h2>
+      {% for user_id, u in untagged.items() %}
+        <div class="row">
+          <div class="who">
+            <div class="name">{{ u.email }}</div>
+            <div class="email">
+              stored without tags — searchable by subject and sender, but not
+              by topic until re-tagged
+            </div>
+          </div>
+          <span class="status pending">{{ "{:,}".format(u.untagged) }} untagged</span>
+          <button type="button" class="ok" data-retag="1">retag</button>
+        </div>
+      {% endfor %}
+      <p class="note">
+        Re-tagging sends these threads to the model again and costs tokens.
+        Threads land here when a tagging batch came back malformed, or when a
+        sync stored them and was interrupted before tagging ran.
       </p>
     {% endif %}
 
