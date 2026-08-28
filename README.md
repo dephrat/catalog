@@ -155,7 +155,7 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-274 tests, no network: the mail provider, the Anthropic client and the Graph
+295 tests, no network: the mail provider, the Anthropic client and the Graph
 transport are all stubbed, so the suite runs offline in about fifteen seconds.
 CI runs the suite plus both secret scans (tracked files and full history) on
 every push — the pre-commit hook only protects clones that opted in via
@@ -195,6 +195,14 @@ python backup.py                  # take one, keeping the last 7
 python backup.py --list
 python backup.py --restore catalog-backup-….db.gz --yes
 ```
+
+The app also takes one itself every `BACKUP_INTERVAL_HOURS` (24 by default, 0
+to turn it off), from a timer thread rather than a platform cron job — job
+state already lives in this process, and the single gunicorn worker means
+exactly one scheduler with no coordination to get wrong. `/admin` reports the
+newest snapshot's age, read from the files on disk rather than from a counter
+the process keeps, so a scheduler that has died shows an ageing backup instead
+of a reassuring number.
 
 Snapshots use SQLite's online backup API rather than a file copy, because
 `cp` on a live database can capture a write in progress and produce a file

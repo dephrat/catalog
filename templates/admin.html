@@ -100,6 +100,41 @@
       </p>
     {% endif %}
 
+    <h2>backups</h2>
+    <div class="row">
+      <div class="who">
+        <div class="name">
+          {% if not backups.enabled %}
+            Scheduled backups are off
+          {% elif backups.age_hours is none %}
+            No snapshot yet
+          {% else %}
+            Newest snapshot {{ "%.1f"|format(backups.age_hours) }}h old
+          {% endif %}
+        </div>
+        <div class="email">
+          {{ backups.count }} snapshot(s) kept
+          {% if backups.enabled %} &middot; every {{ "%g"|format(backups.interval_hours) }}h{% endif %}
+          {% if backups.last_error %} &middot; last attempt failed: {{ backups.last_error }}{% endif %}
+        </div>
+      </div>
+      {% if backups.last_error %}
+        <span class="status pending">failing</span>
+      {% elif not backups.enabled %}
+        <span class="status">disabled</span>
+      {% elif backups.overdue %}
+        <span class="status pending">due</span>
+      {% else %}
+        <span class="status">ok</span>
+      {% endif %}
+    </div>
+    <p class="note">
+      Age is read from the files on disk, not from a counter this process keeps,
+      so a scheduler that has died shows an ageing backup rather than a
+      reassuring number. Snapshots sit beside the database: they cover a bad
+      import, a wipe or corruption, but not the loss of the disk itself.
+    </p>
+
     <h2>catalog transfer</h2>
     <div class="row">
       <div class="who">

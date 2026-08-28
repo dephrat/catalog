@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import anthropic
 import providers
 import db
+import backup
 import tagger
 import extractor
 from datetime import datetime, timezone, timedelta
@@ -120,6 +121,8 @@ def log_startup_config():
     print(f"  per-user spend cap : "
           f"{('$%.2f/month' % USER_SPEND_LIMIT_USD) if USER_SPEND_LIMIT_USD else 'none'}")
     print(f"  batch max wait     : {BATCH_MAX_WAIT_SECONDS}s")
+    print(f"  scheduled backups  : "
+          f"{('every %gh, keeping %d' % (BACKUP_INTERVAL_HOURS, BACKUP_KEEP)) if BACKUP_INTERVAL_HOURS > 0 else 'off'}")
     print(f"  server threads     : {_t.active_count()} active "
           f"(gunicorn worker class is logged separately above)")
     print("─" * 60)
@@ -1472,6 +1475,7 @@ def admin():
                            requests=db.list_access_requests(),
                            usage=usage,
                            untagged=db.untagged_by_user(),
+                           backups=backup_status(),
                            cooldown=DENY_COOLDOWN_MINUTES)
 
 
@@ -1944,8 +1948,110 @@ def detective_status():
     return jsonify({"running": is_running(detective_running, current_user_id(), ttl=DETECTIVE_TTL_SECONDS)})
 
 
+# ── Scheduled backups ─────────────────────────────────────────────────────────
+#
+# The database is the only copy of a personal archive and of the tagging that
+# was paid for to build it, and until this existed the only protection was
+# remembering to run backup.py by hand.
+#
+# A timer thread rather than a platform cron job: job state already lives in
+# this process, the app runs a single gunicorn worker by design, and a cron job
+# on Render is a separate paid service. One worker means exactly one scheduler
+# and no coordination to get wrong.
+#
+# Snapshots land beside the database, which covers a bad import, a wipe or
+# corruption — but not losing the disk. Off-disk copies are a separate problem.
+
+BACKUP_INTERVAL_HOURS = float(os.getenv("BACKUP_INTERVAL_HOURS", "24"))
+BACKUP_KEEP = int(os.getenv("BACKUP_KEEP", "7"))
+BACKUP_POLL_SECONDS = 900
+
+# A sync claim is only honoured while it is fresh. Otherwise one sync that died
+# without clearing its flag would suppress every future backup — the failure
+# would be silent, and would disable exactly the thing that recovers from it.
+BACKUP_SYNC_GRACE_SECONDS = 3600
+
+_backup_status = {"last_error": None, "last_run": None}
+
+
+def newest_backup_age_seconds():
+    """Age of the most recent snapshot, or None if there are none.
+
+    Measured from the filesystem rather than from a counter this process
+    keeps, so a scheduler that died reports an ageing backup instead of
+    whatever value it last managed to set.
+    """
+    snapshots = backup.existing()
+    if not snapshots:
+        return None
+    return max(0.0, time.time() - os.path.getmtime(snapshots[0]))
+
+
+def backup_due():
+    if BACKUP_INTERVAL_HOURS <= 0:
+        return False
+    age = newest_backup_age_seconds()
+    return age is None or age >= BACKUP_INTERVAL_HOURS * 3600
+
+
+def run_scheduled_backup():
+    """Take one snapshot if the newest is older than the interval."""
+    if not backup_due():
+        return False
+
+    # Not a correctness guard: the online backup API takes a read lock per page
+    # and is safe under concurrent writes. This only keeps a large import from
+    # competing with the snapshot for the same disk, and the next poll retries.
+    with _state_lock:
+        busy = any(time.time() - stamp < BACKUP_SYNC_GRACE_SECONDS
+                   for stamp in sync_running.values())
+    if busy:
+        return False
+
+    try:
+        code = backup.take(keep=BACKUP_KEEP)
+    except Exception as e:
+        # A failed backup must never take the app down with it.
+        _backup_status["last_error"] = str(e)
+        print(f"  scheduled backup failed: {e}")
+        return False
+
+    _backup_status["last_run"] = time.time()
+    _backup_status["last_error"] = None if code == 0 else "snapshot refused"
+    return code == 0
+
+
+def backup_status():
+    age = newest_backup_age_seconds()
+    return {
+        "enabled": BACKUP_INTERVAL_HOURS > 0,
+        "interval_hours": BACKUP_INTERVAL_HOURS,
+        "count": len(backup.existing()),
+        "age_hours": None if age is None else age / 3600,
+        "overdue": backup_due(),
+        "last_error": _backup_status["last_error"],
+    }
+
+
+def _backup_loop():
+    while True:
+        time.sleep(BACKUP_POLL_SECONDS)
+        run_scheduled_backup()
+
+
+def start_backup_scheduler():
+    """Start the timer thread, unless backups are off or this is the demo."""
+    if BACKUP_INTERVAL_HOURS <= 0 or DEMO_MODE:
+        return None
+    thread = threading.Thread(target=_backup_loop, daemon=True,
+                              name="backup-scheduler")
+    thread.start()
+    return thread
+
+
 log_startup_config()
 recover_after_restart()
+start_backup_scheduler()
 
 
 if __name__ == "__main__":

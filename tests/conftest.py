@@ -21,6 +21,9 @@ os.environ["DB_PATH"] = _IMPORT_DB
 os.environ.setdefault("SECRET_KEY", "test-key-not-a-real-secret")
 os.environ.setdefault("ADMIN_EMAIL", "admin@example.com")
 os.environ.setdefault("ANTHROPIC_API_KEY", "")
+# The scheduler starts a thread at import. Off by default under test: nothing
+# here should be writing snapshots as a side effect of collection.
+os.environ.setdefault("BACKUP_INTERVAL_HOURS", "0")
 
 import pytest  # noqa: E402
 
