@@ -8,9 +8,12 @@ Microsoft side: as a change *detector* whose payload is thread ids, with
 full threads refetched afterwards through get_thread.
 """
 import base64
+import os
 import time
 
 import requests
+
+from urllib.parse import quote
 
 GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 
@@ -152,20 +155,36 @@ def _full_enumeration(headers):
     The profile's historyId is read *before* the listing: mail arriving
     during the walk is then re-reported by the next incremental sync rather
     than lost in the gap.
+
+    The walk honours GMAIL_SYNC_QUERY (a Gmail search query, e.g.
+    "newer_than:6m") so a first import can be scoped to recent mail. Later
+    incremental syncs follow the history cursor and ignore it, so new mail
+    still arrives; deduplication is by thread id, and the walk sees every
+    thread with a matching message, so widening the query later and
+    re-importing only adds.
     """
     profile = make_request(headers, f"{GMAIL_BASE}/profile")
     new_history_id = profile.get("historyId")
 
+    base = f"{GMAIL_BASE}/messages?maxResults=500&includeSpamTrash=false"
+    sync_query = os.getenv("GMAIL_SYNC_QUERY", "").strip()
+    if sync_query:
+        base += f"&q={quote(sync_query)}"
+
+    # Dedup here, not just downstream: a 40-message thread would otherwise
+    # be reported 40 times.
     thread_ids = []
-    url = f"{GMAIL_BASE}/messages?maxResults=500&includeSpamTrash=false"
+    seen = set()
+    url = base
     while url:
         data = make_request(headers, url)
         for m in data.get("messages", []):
-            if m.get("threadId"):
-                thread_ids.append(m["threadId"])
+            tid = m.get("threadId")
+            if tid and tid not in seen:
+                seen.add(tid)
+                thread_ids.append(tid)
         page_token = data.get("nextPageToken")
-        url = (f"{GMAIL_BASE}/messages?maxResults=500&includeSpamTrash=false"
-               f"&pageToken={page_token}") if page_token else None
+        url = f"{base}&pageToken={page_token}" if page_token else None
 
     return thread_ids, new_history_id
 

@@ -75,6 +75,25 @@ class TestMakeRequest:
             gmail.make_request({}, "http://x")
 
 
+class TestFullEnumeration:
+    def test_sync_query_scopes_the_walk_and_threads_are_deduped(self, monkeypatch):
+        monkeypatch.setenv("GMAIL_SYNC_QUERY", "newer_than:6m")
+        urls = []
+
+        def fake_request(headers, url, retries=5):
+            urls.append(url)
+            if "profile" in url:
+                return {"historyId": "300"}
+            return {"messages": [{"threadId": "t1"}, {"threadId": "t1"},
+                                 {"threadId": "t2"}]}
+
+        monkeypatch.setattr(gmail, "make_request", fake_request)
+        tids, cursor = gmail._full_enumeration({})
+        assert tids == ["t1", "t2"]
+        assert cursor == "300"
+        assert "q=newer_than%3A6m" in urls[-1]
+
+
 class TestHistoryChanges:
     def test_pages_to_completion(self, monkeypatch):
         pages = [
@@ -152,7 +171,7 @@ class TestHistoryChanges:
 
         monkeypatch.setattr(gmail, "make_request", fake_request)
         tids, removed, cursor, full = gmail.history_changes("tok", None)
-        assert tids == ["t1", "t1"], "dedup is the provider's job"
+        assert tids == ["t1"], "one thread id per thread, however many messages"
         assert cursor == "50"
         assert full is True
 
