@@ -1,0 +1,26 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/><title>Catalog — sign in</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg:#0f0f0f;--surface:#171717;--border:#2a2a2a;--accent:#c8f97a;
+          --text:#e8e8e8;--dim:#888;--mono:"DM Mono",monospace;--sans:"DM Sans",sans-serif}
+    body{background:var(--bg);color:var(--text);font-family:var(--sans);
+         min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:8px;
+          padding:2.5rem;max-width:420px;width:100%}
+    h1{font-family:var(--mono);font-size:1rem;color:var(--accent);margin-bottom:1rem;font-weight:500}
+    p{font-size:.9rem;line-height:1.6;color:var(--dim);margin-bottom:1.25rem}
+    .btn{font-family:var(--mono);font-size:.78rem;padding:.65rem 1.1rem;border-radius:4px;
+         cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--text);
+         text-decoration:none;display:block;text-align:center;margin-bottom:.6rem}
+    .btn:hover{border-color:var(--accent);color:var(--accent)}
+  </style></head><body>
+  <div class="card">
+    <h1>catalog.ai</h1>
+    <p>Choose the mailbox to sign in with.</p>
+    {% for p in providers %}
+      <a class="btn" href="/login?provider={{ p.name }}">sign in with {{ p.label }}</a>
+    {% endfor %}
+  </div>
+</body></html>

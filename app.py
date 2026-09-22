@@ -1301,7 +1301,11 @@ def login():
         session["user_email"] = demo_seed.DEMO_EMAIL
         session["provider"] = "demo"
         return redirect(url_for("index"))
-    provider = providers.get(request.args.get("provider"))
+    requested = request.args.get("provider")
+    if not requested:
+        # No provider chosen yet: show the chooser instead of assuming one.
+        return render_template("login.html", providers=providers.PROVIDERS.values())
+    provider = providers.get(requested)
     # /callback has no way to know which provider issued the code, so record it.
     session["pending_provider"] = provider.name
 

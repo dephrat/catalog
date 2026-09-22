@@ -336,7 +336,7 @@ class TestCredentialsAreNotInTheCookie:
         monkeypatch.setattr(app, "ADMIN_EMAILS", {"owner@example.com"})
         app.app.config["TESTING"] = True
         client = app.app.test_client()
-        client.get("/login")
+        client.get("/login?provider=microsoft")
         with client.session_transaction() as sess:
             state = sess["oauth_state"]
         resp = client.get(f"/callback?code=real-code&state={state}")
@@ -592,12 +592,23 @@ class TestOAuthState:
             return {"id": "u-attacker", "email": "a@example.com",
                     "display_name": "A"}
 
+    def test_login_without_a_provider_shows_the_chooser(self, user, monkeypatch):
+        # No provider named means no OAuth started: no state, no redirect,
+        # just the chooser listing every registered provider.
+        client = self._client(monkeypatch)
+        resp = client.get("/login")
+        assert resp.status_code == 200
+        for p in providers.PROVIDERS.values():
+            assert f"/login?provider={p.name}".encode() in resp.data
+        with client.session_transaction() as sess:
+            assert "oauth_state" not in sess
+
     def test_login_issues_a_state_and_passes_it_to_the_provider(self, user, monkeypatch):
         fake = self._FakeProvider()
         monkeypatch.setattr(providers, "get", lambda name=None: fake)
         client = self._client(monkeypatch)
 
-        resp = client.get("/login")
+        resp = client.get("/login?provider=microsoft")
         assert resp.status_code == 302
         with client.session_transaction() as sess:
             stored = sess["oauth_state"]
@@ -610,7 +621,7 @@ class TestOAuthState:
         seen = set()
         for _ in range(5):
             client = self._client(monkeypatch)
-            client.get("/login")
+            client.get("/login?provider=microsoft")
             with client.session_transaction() as sess:
                 seen.add(sess["oauth_state"])
         assert len(seen) == 5
@@ -626,7 +637,7 @@ class TestOAuthState:
     def test_a_callback_with_the_wrong_state_is_refused(self, user, monkeypatch):
         monkeypatch.setattr(providers, "get", lambda name=None: self._FakeProvider())
         client = self._client(monkeypatch)
-        client.get("/login")            # a real state is now in the session
+        client.get("/login?provider=microsoft")            # a real state is now in the session
         resp = client.get("/callback?code=attacker-code&state=guessed")
         assert resp.status_code == 400
         with client.session_transaction() as sess:
@@ -636,7 +647,7 @@ class TestOAuthState:
         monkeypatch.setattr(providers, "get", lambda name=None: self._FakeProvider())
         monkeypatch.setattr(app, "ADMIN_EMAILS", {"a@example.com"})
         client = self._client(monkeypatch)
-        client.get("/login")
+        client.get("/login?provider=microsoft")
         with client.session_transaction() as sess:
             state = sess["oauth_state"]
 
@@ -650,7 +661,7 @@ class TestOAuthState:
         monkeypatch.setattr(providers, "get", lambda name=None: self._FakeProvider())
         monkeypatch.setattr(app, "ADMIN_EMAILS", {"a@example.com"})
         client = self._client(monkeypatch)
-        client.get("/login")
+        client.get("/login?provider=microsoft")
         with client.session_transaction() as sess:
             state = sess["oauth_state"]
 
@@ -660,7 +671,7 @@ class TestOAuthState:
     def test_the_pending_provider_is_cleared_on_rejection(self, user, monkeypatch):
         monkeypatch.setattr(providers, "get", lambda name=None: self._FakeProvider())
         client = self._client(monkeypatch)
-        client.get("/login")
+        client.get("/login?provider=microsoft")
         client.get("/callback?code=attacker-code&state=wrong")
         with client.session_transaction() as sess:
             assert "pending_provider" not in sess
@@ -708,7 +719,7 @@ class TestDemoModeRoutes:
         client = self._demo_client(monkeypatch)
         with client.session_transaction() as sess:
             sess.clear()
-        resp = client.get("/login")
+        resp = client.get("/login?provider=microsoft")
         assert resp.status_code == 302
         with client.session_transaction() as sess:
             assert sess["user_id"] == demo_seed.DEMO_USER_ID
