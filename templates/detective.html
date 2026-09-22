@@ -645,7 +645,13 @@ function renderConclusion(text, foundThreads) {
   // truncated tails on long bilingual subjects — so exact equality is too
   // strict. Normalise, then accept containment either way (min length 12
   // so a citation like "Re:" cannot claim everything).
-  const norm = s => s.toLowerCase().replace(/\s+/g, ' ').trim();
+  // (and fold typographic quotes/dashes — mail subjects carry ’ where the
+  // model writes ')
+  const norm = s => s.toLowerCase()
+    .replace(/[‘’‛]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[–—]/g, '-')
+    .replace(/\s+/g, ' ').trim();
   referencedSubjects.forEach(subject => {
     const wanted = norm(subject);
     const thread = foundThreads.find(t => {
