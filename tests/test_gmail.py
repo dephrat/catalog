@@ -55,6 +55,26 @@ def no_sleeping(monkeypatch):
     monkeypatch.setattr(gmail.time, "sleep", lambda s: None)
 
 
+class TestMakeRequest:
+    def test_a_rate_limit_403_is_retried_not_raised(self, monkeypatch):
+        """Gmail reports per-user quota exhaustion as 403 rateLimitExceeded,
+        which a parallel thread fetch reliably provokes."""
+        limited = FakeResponse(403, {"error": {"errors": [
+            {"reason": "userRateLimitExceeded"}]}})
+        responses = [limited, limited, FakeResponse(200, {"ok": True})]
+        monkeypatch.setattr(gmail.requests, "get",
+                            lambda url, headers=None: responses.pop(0))
+        assert gmail.make_request({}, "http://x") == {"ok": True}
+
+    def test_a_permission_403_still_raises(self, monkeypatch):
+        denied = FakeResponse(403, {"error": {"errors": [
+            {"reason": "insufficientPermissions"}]}})
+        monkeypatch.setattr(gmail.requests, "get",
+                            lambda url, headers=None: denied)
+        with pytest.raises(requests.HTTPError):
+            gmail.make_request({}, "http://x")
+
+
 class TestHistoryChanges:
     def test_pages_to_completion(self, monkeypatch):
         pages = [

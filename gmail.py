@@ -29,12 +29,27 @@ def get_headers(access_token):
     return {"Authorization": f"Bearer {access_token}"}
 
 
-def make_request(headers, url, retries=3):
-    """Make a Gmail API request with retry on 429 and 5xx gateway errors."""
+def _is_rate_limit_403(response):
+    """Gmail reports per-user quota exhaustion as 403, not only 429.
+
+    The status alone is ambiguous — a real permission error is also 403 —
+    so only the documented quota reasons are treated as retryable.
+    """
+    try:
+        errors = response.json()["error"]["errors"]
+    except Exception:
+        return False
+    return any(e.get("reason") in ("rateLimitExceeded", "userRateLimitExceeded")
+               for e in errors)
+
+
+def make_request(headers, url, retries=5):
+    """Make a Gmail API request with retry on rate limits and 5xx gateway errors."""
     for attempt in range(retries):
         response = requests.get(url, headers=headers)
-        if response.status_code == 429:
-            retry_after = int(response.headers.get("Retry-After", 10))
+        if response.status_code == 429 or (
+                response.status_code == 403 and _is_rate_limit_403(response)):
+            retry_after = int(response.headers.get("Retry-After", 0)) or 2 ** attempt
             print(f"Rate limited, waiting {retry_after}s...")
             time.sleep(retry_after)
             continue
