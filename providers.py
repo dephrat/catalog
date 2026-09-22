@@ -279,11 +279,12 @@ class GmailProvider(MailProvider):
             "has_attachments": bool(g_mail.extract_attachments(payload)),
             "body": g_mail.extract_body(payload),
             # #all resolves regardless of which label the message carries.
-            # /u/<address> pins the link to the synced account — /u/0 is
-            # merely "first signed-in account" and opens someone else's
-            # mailbox for anyone signed into several.
-            "web_link": (f"https://mail.google.com/mail/u/{account or 0}"
-                         f"/#all/{m['id']}"),
+            # ?authuser=<address> pins the link to the synced account —
+            # /u/0 is merely "first signed-in account", and the /u/<email>
+            # path form 404s intermittently in multi-account sessions.
+            "web_link": (f"https://mail.google.com/mail/?authuser={account}"
+                         f"#all/{m['id']}" if account else
+                         f"https://mail.google.com/mail/u/0/#all/{m['id']}"),
             "container_id": container,
         }
 

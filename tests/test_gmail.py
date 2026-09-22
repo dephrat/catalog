@@ -275,7 +275,7 @@ class TestGmailProviderBoundary:
             "to_addrs": ["b@example.com", "c@example.com"],
             "date": "2024-03-01T10:00:00+00:00", "has_attachments": False,
             "body": "<p>hi</p>",
-            "web_link": "https://mail.google.com/mail/u/me@gmail.com/#all/m1",
+            "web_link": "https://mail.google.com/mail/?authuser=me@gmail.com#all/m1",
             "container_id": "INBOX",
         }
 
