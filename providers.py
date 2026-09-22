@@ -29,6 +29,8 @@ returns a single source.
 """
 
 import auth as ms_auth
+import gauth as g_auth
+import gmail as g_mail
 import graph as ms_graph
 
 
@@ -178,7 +180,114 @@ class MicrosoftProvider(MailProvider):
         return out
 
 
-PROVIDERS = {p.name: p for p in (MicrosoftProvider(),)}
+class GmailProvider(MailProvider):
+    """Google accounts via the Gmail REST API."""
+
+    name = "gmail"
+    label = "Google / Gmail"
+
+    def auth_url(self, state=None):
+        return g_auth.get_auth_url(state=state)
+
+    def token_from_code(self, code):
+        token, cache = g_auth.get_token_from_code(code)
+        return token["access_token"], cache
+
+    def refresh_token(self, token_cache):
+        return g_auth.get_valid_token(token_cache)
+
+    def get_identity(self, access_token):
+        # gmail.readonly is the only scope, so identity comes from the
+        # mailbox profile: the address is both the id and the email. Google
+        # addresses are stable, and asking for an OpenID scope solely to get
+        # a numeric subject would widen the consent screen for nothing.
+        profile = g_mail.get_profile(access_token)
+        email = profile.get("emailAddress") or ""
+        return {"id": email, "email": email, "display_name": ""}
+
+    def excluded_container_ids(self, access_token):
+        # System labels with fixed ids — no lookup call needed.
+        return set(g_mail.EXCLUDED_LABELS)
+
+    def list_change_sources(self, access_token, exclude_ids=frozenset()):
+        # One source: Gmail's history feed spans the whole mailbox.
+        return [{"id": g_mail.MAILBOX_SOURCE_ID, "name": "All Mail"}]
+
+    def changes_for_source(self, access_token, source_id, cursor):
+        thread_ids, removed, new_cursor, full = g_mail.history_changes(
+            access_token, cursor
+        )
+        # History reports one record per change; a busy thread repeats.
+        return list(dict.fromkeys(thread_ids)), removed, new_cursor, full
+
+    def get_thread(self, access_token, thread_id):
+        data = g_mail.get_thread(access_token, thread_id)
+        if not data:
+            return []
+        return [self._normalise(m) for m in data.get("messages", []) if m.get("id")]
+
+    @staticmethod
+    def _normalise(m):
+        from datetime import datetime, timezone
+        from email.utils import getaddresses, parseaddr
+
+        payload = m.get("payload") or {}
+
+        # internalDate is ms since epoch and is what Gmail itself sorts by;
+        # the Date header is sender-supplied and lies.
+        date = ""
+        if m.get("internalDate"):
+            try:
+                date = datetime.fromtimestamp(
+                    int(m["internalDate"]) / 1000, tz=timezone.utc).isoformat()
+            except (ValueError, OverflowError):
+                pass
+
+        # container_id is singular upstream but Gmail labels are a set. What
+        # the exclusion filter needs is: does this message sit somewhere
+        # excluded? So an excluded label wins; otherwise any label stands in.
+        labels = m.get("labelIds") or []
+        container = next((l for l in labels if l in g_mail.EXCLUDED_LABELS),
+                         labels[0] if labels else "")
+
+        return {
+            "id": m["id"],
+            "thread_id": m.get("threadId") or m["id"],
+            "subject": g_mail.header_value(payload, "Subject"),
+            "from_addr": parseaddr(g_mail.header_value(payload, "From"))[1],
+            "to_addrs": [
+                addr for _, addr in getaddresses(
+                    [g_mail.header_value(payload, "To")]) if addr
+            ],
+            "date": date,
+            "has_attachments": bool(g_mail.extract_attachments(payload)),
+            "body": g_mail.extract_body(payload),
+            # #all resolves regardless of which label the message carries.
+            "web_link": f"https://mail.google.com/mail/u/0/#all/{m['id']}",
+            "container_id": container,
+        }
+
+    def get_attachment_metadata(self, access_token, message_ids):
+        # No $batch equivalent worth the multipart plumbing here: attachment-
+        # bearing messages are a small minority (9 threads in 90 days on the
+        # measured mailbox), so these stay individual GETs.
+        results = {}
+        for mid in message_ids:
+            msg = g_mail.get_message(access_token, mid)
+            results[mid] = g_mail.extract_attachments(
+                (msg or {}).get("payload")) if msg else []
+        return results
+
+    def get_attachment_content(self, access_token, pairs):
+        out = {}
+        for mid, aid in pairs:
+            content = g_mail.get_attachment(access_token, mid, aid)
+            if content:
+                out[(mid, aid)] = content
+        return out
+
+
+PROVIDERS = {p.name: p for p in (MicrosoftProvider(), GmailProvider())}
 DEFAULT_PROVIDER = "microsoft"
 
 

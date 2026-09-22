@@ -148,6 +148,29 @@ every variable, including which Azure field is which — the client secret is th
 `ADMIN_EMAIL` is required. Access control is fail-closed: with it unset, nobody
 can sign in, including you.
 
+### Gmail
+
+Gmail is a second provider behind the same abstraction; sign in at
+`/login?provider=gmail` (the plain `/login` stays Microsoft, the default
+provider). Setup, in Google Cloud Console:
+
+1. Create a project, then under **APIs & Services** enable the **Gmail API**.
+2. Configure the OAuth consent screen (External is fine; while the app is in
+   *Testing* status, add your own address as a test user — refresh tokens for
+   testing apps expire after 7 days, so publish the app for real use).
+3. **Credentials → Create credentials → OAuth client ID → Web application**,
+   with your `REDIRECT_URI` (e.g. `http://localhost:5000/callback`) as an
+   authorised redirect URI.
+4. Put the client id and secret in `.env` as `GOOGLE_CLIENT_ID` and
+   `GOOGLE_CLIENT_SECRET`.
+
+The only scope requested is `gmail.readonly`. The signed-in identity is the
+Gmail address itself, so add it to `ADMIN_EMAIL` (comma-separated alongside
+the Microsoft one) or approve it at `/admin`. Change detection uses the
+mailbox-wide history feed; Gmail only retains history for about a week, so a
+long pause between syncs triggers an automatic full re-enumeration — cheap,
+because unchanged threads are dropped before tagging.
+
 ## Tests
 
 ```bash
@@ -155,8 +178,8 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-295 tests, no network: the mail provider, the Anthropic client and the Graph
-transport are all stubbed, so the suite runs offline in about fifteen seconds.
+328 tests, no network: the mail providers, the Anthropic client and the Graph
+and Gmail transports are all stubbed, so the suite runs offline in about fifteen seconds.
 CI runs the suite plus both secret scans (tracked files and full history) on
 every push — the pre-commit hook only protects clones that opted in via
 `core.hooksPath`, so the same gates run where nothing can skip them.
