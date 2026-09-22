@@ -44,19 +44,29 @@ def _is_rate_limit_403(response):
 
 
 def make_request(headers, url, retries=5):
-    """Make a Gmail API request with retry on rate limits and 5xx gateway errors."""
-    for attempt in range(retries):
+    """Make a Gmail API request with retry on rate limits and 5xx gateway errors.
+
+    Rate limiting is pacing, not failure: those waits back off exponentially
+    (capped at 64s) and never consume the retry budget, or a busy mailbox
+    would fail threads that merely needed patience. `retries` bounds only
+    gateway errors.
+    """
+    attempt = 0
+    limited = 0
+    while attempt < retries:
         response = requests.get(url, headers=headers)
         if response.status_code == 429 or (
                 response.status_code == 403 and _is_rate_limit_403(response)):
-            retry_after = int(response.headers.get("Retry-After", 0)) or 2 ** attempt
-            print(f"Rate limited, waiting {retry_after}s...")
-            time.sleep(retry_after)
+            wait = int(response.headers.get("Retry-After", 0)) or min(2 ** limited, 64)
+            limited += 1
+            print(f"Rate limited, waiting {wait}s...")
+            time.sleep(wait)
             continue
         if response.status_code in (502, 503, 504):
-            wait = 5 * (attempt + 1)
+            attempt += 1
+            wait = 5 * attempt
             print(f"Gateway error {response.status_code}, retrying in {wait}s... "
-                  f"(attempt {attempt + 1}/{retries})")
+                  f"(attempt {attempt}/{retries})")
             time.sleep(wait)
             continue
         response.raise_for_status()
