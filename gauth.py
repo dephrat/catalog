@@ -87,12 +87,23 @@ def get_valid_token(token_cache_data):
             cache.get("expires_at", 0) - EXPIRY_MARGIN_SECONDS > time.time():
         return cache["access_token"], token_cache_data
 
-    r = requests.post(TOKEN_ENDPOINT, data={
-        "client_id": GOOGLE_CLIENT_ID,
-        "client_secret": GOOGLE_CLIENT_SECRET,
-        "refresh_token": refresh_token,
-        "grant_type": "refresh_token",
-    }, timeout=30)
+    # A refresh happens deep inside a long sync, where a transient DNS or
+    # connection failure would otherwise kill hours of work.
+    for attempt in range(4):
+        try:
+            r = requests.post(TOKEN_ENDPOINT, data={
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "refresh_token": refresh_token,
+                "grant_type": "refresh_token",
+            }, timeout=30)
+            break
+        except requests.ConnectionError:
+            if attempt == 3:
+                raise
+            wait = 5 * 2 ** attempt
+            print(f"Network error refreshing Google token, retrying in {wait}s...")
+            time.sleep(wait)
     result = r.json() if r.content else {}
     if r.status_code != 200 or "access_token" not in result:
         # invalid_grant means revoked or expired consent — unrecoverable

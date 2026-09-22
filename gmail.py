@@ -57,7 +57,17 @@ def make_request(headers, url, retries=5):
     attempt = 0
     limited = 0
     while attempt < retries:
-        response = requests.get(url, headers=headers)
+        try:
+            response = requests.get(url, headers=headers, timeout=60)
+        except requests.ConnectionError:
+            # Transient network failure (DNS blips included) — same
+            # treatment as a gateway error.
+            attempt += 1
+            wait = 5 * attempt
+            print(f"Network error, retrying in {wait}s... "
+                  f"(attempt {attempt}/{retries})")
+            time.sleep(wait)
+            continue
         if response.status_code == 429 or (
                 response.status_code == 403 and _is_rate_limit_403(response)):
             wait = int(response.headers.get("Retry-After", 0)) or min(2 ** limited, 64)

@@ -63,14 +63,14 @@ class TestMakeRequest:
             {"reason": "userRateLimitExceeded"}]}})
         responses = [limited, limited, FakeResponse(200, {"ok": True})]
         monkeypatch.setattr(gmail.requests, "get",
-                            lambda url, headers=None: responses.pop(0))
+                            lambda url, headers=None, **kw: responses.pop(0))
         assert gmail.make_request({}, "http://x") == {"ok": True}
 
     def test_a_permission_403_still_raises(self, monkeypatch):
         denied = FakeResponse(403, {"error": {"errors": [
             {"reason": "insufficientPermissions"}]}})
         monkeypatch.setattr(gmail.requests, "get",
-                            lambda url, headers=None: denied)
+                            lambda url, headers=None, **kw: denied)
         with pytest.raises(requests.HTTPError):
             gmail.make_request({}, "http://x")
 
