@@ -224,10 +224,26 @@ class GmailProvider(MailProvider):
         data = g_mail.get_thread(access_token, thread_id)
         if not data:
             return []
-        return [self._normalise(m) for m in data.get("messages", []) if m.get("id")]
+        account = self._account_email(access_token)
+        return [self._normalise(m, account)
+                for m in data.get("messages", []) if m.get("id")]
+
+    # Access tokens rotate roughly hourly, so this stays a handful of
+    # entries; it exists so a full sync costs one profile call, not one
+    # per thread.
+    _email_by_token = {}
+
+    def _account_email(self, access_token):
+        email = self._email_by_token.get(access_token)
+        if email is None:
+            email = g_mail.get_profile(access_token).get("emailAddress") or ""
+            if len(self._email_by_token) > 16:
+                self._email_by_token.clear()
+            self._email_by_token[access_token] = email
+        return email
 
     @staticmethod
-    def _normalise(m):
+    def _normalise(m, account=""):
         from datetime import datetime, timezone
         from email.utils import getaddresses, parseaddr
 
@@ -263,7 +279,11 @@ class GmailProvider(MailProvider):
             "has_attachments": bool(g_mail.extract_attachments(payload)),
             "body": g_mail.extract_body(payload),
             # #all resolves regardless of which label the message carries.
-            "web_link": f"https://mail.google.com/mail/u/0/#all/{m['id']}",
+            # /u/<address> pins the link to the synced account — /u/0 is
+            # merely "first signed-in account" and opens someone else's
+            # mailbox for anyone signed into several.
+            "web_link": (f"https://mail.google.com/mail/u/{account or 0}"
+                         f"/#all/{m['id']}"),
             "container_id": container,
         }
 

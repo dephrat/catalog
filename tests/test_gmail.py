@@ -268,14 +268,14 @@ class TestGmailProviderBoundary:
                 "mimeType": "text/html",
                 "body": {"data": b64url(b"<p>hi</p>")},
             },
-        })
+        }, account="me@gmail.com")
         assert normalised == {
             "id": "m1", "thread_id": "t1", "subject": "Hello",
             "from_addr": "a@example.com",
             "to_addrs": ["b@example.com", "c@example.com"],
             "date": "2024-03-01T10:00:00+00:00", "has_attachments": False,
             "body": "<p>hi</p>",
-            "web_link": "https://mail.google.com/mail/u/0/#all/m1",
+            "web_link": "https://mail.google.com/mail/u/me@gmail.com/#all/m1",
             "container_id": "INBOX",
         }
 
