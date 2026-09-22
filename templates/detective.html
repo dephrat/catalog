@@ -641,10 +641,21 @@ function renderConclusion(text, foundThreads) {
   const matchedThreads = [];
   const unmatchedSubjects = [];
 
+  // The model reproduces subjects imperfectly — collapsed whitespace,
+  // truncated tails on long bilingual subjects — so exact equality is too
+  // strict. Normalise, then accept containment either way (min length 12
+  // so a citation like "Re:" cannot claim everything).
+  const norm = s => s.toLowerCase().replace(/\s+/g, ' ').trim();
   referencedSubjects.forEach(subject => {
-    const thread = foundThreads.find(t =>
-      t.subject && t.subject.trim().toLowerCase() === subject.toLowerCase()
-    );
+    const wanted = norm(subject);
+    const thread = foundThreads.find(t => {
+      if (!t.subject) return false;
+      const have = norm(t.subject);
+      if (have === wanted) return true;
+      const shorter = have.length < wanted.length ? have : wanted;
+      const longer = have.length < wanted.length ? wanted : have;
+      return shorter.length >= 12 && longer.includes(shorter);
+    });
     if (thread) {
       matchedThreads.push({ subject, thread });
     } else {
